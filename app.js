@@ -73,6 +73,7 @@ function formPayload(form) {
     username: data.get("username"),
     password: data.get("password"),
     auth: data.get("auth"),
+    connectionProfile: data.get("connectionProfile"),
     sampleMode: data.get("sampleMode") === "on",
     allowSelfSigned: data.get("allowSelfSigned") === "on"
   };

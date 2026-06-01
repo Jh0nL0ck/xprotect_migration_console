@@ -78,6 +78,13 @@ The backend automatically appends:
 
 If the XProtect server uses a self-signed HTTPS certificate, enable **Allow self-signed certificate** in the connection form.
 
+Keep **API Gateway profile** set to **Auto-detect** for normal use. Use the manual profiles only when troubleshooting:
+
+- **Legacy IDP (/IDP)** for older API Gateway layouts.
+- **Modern IDP (/api/idp)** for newer API Gateway layouts.
+
+If the server returns `LockedOut`, stop retrying and unlock the account or wait for the lockout policy to expire before testing again.
+
 The real connection flow uses the XProtect API Gateway Identity Provider:
 
 ```text

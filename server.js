@@ -110,6 +110,19 @@ function normalizeServerUrl(serverUrl) {
   return url.toString().replace(/\/$/, "");
 }
 
+function configureConnectionProfile(connection) {
+  if (connection.connectionProfile === "legacy") {
+    connection.identityCandidates = [`${connection.serverBase}/IDP`];
+    connection.apiBase = `${connection.serverBase}/API/rest/v1`;
+    return;
+  }
+
+  if (connection.connectionProfile === "modern") {
+    connection.identityCandidates = [`${connection.serverBase}/api/idp`];
+    connection.apiBase = `${connection.serverBase}/api/rest/v1`;
+  }
+}
+
 function readResponseBody(response) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -155,7 +168,10 @@ async function httpRequest(connection, url, options = {}) {
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
     const detail = body ? ` - ${body.slice(0, 300)}` : "";
-    throw new Error(`${response.statusCode} ${response.statusMessage}${detail}`);
+    const error = new Error(`${response.statusCode} ${response.statusMessage}${detail}`);
+    error.statusCode = response.statusCode;
+    error.responseBody = body;
+    throw error;
   }
 
   if (!body) {
@@ -169,6 +185,14 @@ async function httpRequest(connection, url, options = {}) {
   }
 }
 
+function isCredentialFailure(error) {
+  if (error.statusCode !== 400 && error.statusCode !== 401) {
+    return false;
+  }
+
+  return /invalid_grant|invalid_username_or_password|LockedOut/i.test(error.responseBody || error.message);
+}
+
 async function tryJsonRequest(connection, urls, options = {}) {
   const errors = [];
 
@@ -179,6 +203,10 @@ async function tryJsonRequest(connection, urls, options = {}) {
         url
       };
     } catch (error) {
+      if (options.stopOnCredentialFailure && isCredentialFailure(error)) {
+        throw new Error(`Authentication failed at ${url}: ${error.message}`);
+      }
+
       errors.push(`${url}: ${error.message}`);
     }
   }
@@ -242,6 +270,7 @@ async function requestAccessToken(connection) {
   const tokenUrls = [...new Set([...tokenBases].map((identityBase) => `${identityBase}/connect/token`))];
   const result = await tryJsonRequest(connection, tokenUrls, {
     method: "POST",
+    stopOnCredentialFailure: true,
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       "Content-Length": Buffer.byteLength(body)
@@ -362,6 +391,8 @@ async function summarizeResource(connection, resourceNames) {
 }
 
 async function probeConnection(connection) {
+  await ensureAccessToken(connection);
+
   const errors = [];
   const probeResources = [
     "cameras?page=0&size=1&disabled",
@@ -432,12 +463,18 @@ async function connectSystem(system, payload) {
     username: payload.username,
     password: payload.password,
     auth: payload.auth,
+    connectionProfile: payload.connectionProfile || "auto",
     sampleMode: payload.sampleMode,
     allowSelfSigned: payload.allowSelfSigned
   };
 
   if (!connection.sampleMode) {
-    await discoverGateway(connection);
+    configureConnectionProfile(connection);
+
+    if (connection.connectionProfile === "auto") {
+      await discoverGateway(connection);
+    }
+
     connection.probeResource = await probeConnection(connection);
   }
 
