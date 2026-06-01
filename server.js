@@ -154,7 +154,8 @@ async function httpRequest(connection, url, options = {}) {
   const body = await readResponseBody(response);
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new Error(`${response.statusCode} ${response.statusMessage}`);
+    const detail = body ? ` - ${body.slice(0, 300)}` : "";
+    throw new Error(`${response.statusCode} ${response.statusMessage}${detail}`);
   }
 
   if (!body) {
@@ -221,10 +222,24 @@ async function requestAccessToken(connection) {
     `${connection.serverBase}/IDP`,
     `${connection.serverBase}/api/idp`
   ];
-  const tokenUrls = [...new Set(identityCandidates.flatMap((identityBase) => [
-    `${identityBase}/connect/token`,
-    `${identityBase}/connect/token/`
-  ]))];
+  const tokenBases = new Set(identityCandidates);
+
+  for (const identityBase of identityCandidates) {
+    const identityUrl = new URL(identityBase);
+    const normalizedPath = identityUrl.pathname.replace(/^\/+|\/+$/g, "");
+
+    if (normalizedPath && !normalizedPath.toLowerCase().startsWith("api/")) {
+      tokenBases.add(`${connection.serverBase}/API/${normalizedPath}`);
+      tokenBases.add(`${connection.serverBase}/api/${normalizedPath.toLowerCase()}`);
+    }
+  }
+
+  tokenBases.add(`${connection.serverBase}/API/IDP`);
+  tokenBases.add(`${connection.serverBase}/api/idp`);
+  tokenBases.add(`${connection.serverBase}/IDP`);
+  tokenBases.add(`${connection.serverBase}/idp`);
+
+  const tokenUrls = [...new Set([...tokenBases].map((identityBase) => `${identityBase}/connect/token`))];
   const result = await tryJsonRequest(connection, tokenUrls, {
     method: "POST",
     headers: {
