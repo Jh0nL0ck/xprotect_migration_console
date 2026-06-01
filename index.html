@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>XProtect Migration Console</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">XProtect Migration Console</p>
+          <h1>Server Configuration Migration</h1>
+        </div>
+        <div class="status-strip" aria-live="polite">
+          <span class="status-pill" id="sourceStatus">Source disconnected</span>
+          <span class="status-pill" id="targetStatus">Target disconnected</span>
+        </div>
+      </header>
+
+      <section class="connection-grid" aria-label="Server connections">
+        <form class="connection-panel" id="sourceForm">
+          <div class="panel-header">
+            <div>
+              <h2>Source System</h2>
+              <p>Read configuration from the existing XProtect server.</p>
+            </div>
+            <span class="connection-badge" id="sourceBadge">Not connected</span>
+          </div>
+
+          <label>
+            Server URL
+            <input name="url" type="url" placeholder="https://source-server.example.com" required>
+          </label>
+
+          <div class="field-row">
+            <label>
+              Username
+              <input name="username" type="text" autocomplete="username" required>
+            </label>
+            <label>
+              Password
+              <input name="password" type="password" autocomplete="current-password" required>
+            </label>
+          </div>
+
+          <label>
+            Authentication
+            <select name="auth">
+              <option value="basic">Basic</option>
+              <option value="windows">Windows</option>
+              <option value="oauth">OAuth / API Gateway</option>
+            </select>
+          </label>
+
+          <label class="checkbox-field">
+            <input name="sampleMode" type="checkbox">
+            Use sample data
+          </label>
+
+          <button class="primary-action" type="submit">
+            <span aria-hidden="true">&gt;</span>
+            Connect source
+          </button>
+        </form>
+
+        <form class="connection-panel" id="targetForm">
+          <div class="panel-header">
+            <div>
+              <h2>Target System</h2>
+              <p>Import selected configuration into the new XProtect server.</p>
+            </div>
+            <span class="connection-badge" id="targetBadge">Not connected</span>
+          </div>
+
+          <label>
+            Server URL
+            <input name="url" type="url" placeholder="https://target-server.example.com" required>
+          </label>
+
+          <div class="field-row">
+            <label>
+              Username
+              <input name="username" type="text" autocomplete="username" required>
+            </label>
+            <label>
+              Password
+              <input name="password" type="password" autocomplete="current-password" required>
+            </label>
+          </div>
+
+          <label>
+            Authentication
+            <select name="auth">
+              <option value="basic">Basic</option>
+              <option value="windows">Windows</option>
+              <option value="oauth">OAuth / API Gateway</option>
+            </select>
+          </label>
+
+          <label class="checkbox-field">
+            <input name="sampleMode" type="checkbox">
+            Use sample data
+          </label>
+
+          <button class="primary-action" type="submit">
+            <span aria-hidden="true">&gt;</span>
+            Connect target
+          </button>
+        </form>
+      </section>
+
+      <section class="migration-workspace" aria-labelledby="migrationTitle">
+        <div class="workspace-header">
+          <div>
+            <p class="eyebrow">Migration selection</p>
+            <h2 id="migrationTitle">Configuration objects</h2>
+          </div>
+          <button class="secondary-action" id="selectAll" type="button" disabled>Select all</button>
+        </div>
+
+        <div class="empty-state" id="emptyState">
+          Connect both systems to load available cameras, camera groups, roles, rules, views, and alarms.
+        </div>
+
+        <div class="object-list" id="objectList" hidden></div>
+
+        <footer class="migration-footer">
+          <p class="migration-note">
+            Recordings and stored events will not be moved to the new system.
+          </p>
+          <button class="migrate-action" id="migrateButton" type="button" disabled>
+            <span aria-hidden="true">&gt;&gt;</span>
+            Migrate selected
+          </button>
+        </footer>
+      </section>
+
+      <section class="activity-panel" aria-labelledby="activityTitle">
+        <h2 id="activityTitle">Activity</h2>
+        <ol id="activityLog">
+          <li>Waiting for source and target connections.</li>
+        </ol>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

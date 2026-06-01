@@ -1,0 +1,325 @@
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+
+const port = Number(process.env.PORT || 4173);
+const root = __dirname;
+const sessions = {
+  source: null,
+  target: null
+};
+
+const staticTypes = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".png": "image/png"
+};
+
+const resourceMap = [
+  {
+    id: "cameras",
+    resources: ["cameras"]
+  },
+  {
+    id: "cameraGroups",
+    resources: ["cameraGroups", "deviceGroups", "cameraDeviceGroups"]
+  },
+  {
+    id: "roles",
+    resources: ["roles"]
+  },
+  {
+    id: "rules",
+    resources: ["rules"]
+  },
+  {
+    id: "views",
+    resources: ["views", "viewGroups"]
+  },
+  {
+    id: "alarms",
+    resources: ["alarmDefinitions", "alarms"]
+  }
+];
+
+const sampleCounts = {
+  cameras: 128,
+  cameraGroups: 18,
+  roles: 9,
+  rules: 34,
+  views: 42,
+  alarms: 16
+};
+
+function readRequestJson(request) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      if (!body) {
+        resolve({});
+        return;
+      }
+
+      try {
+        resolve(JSON.parse(body));
+      } catch (error) {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
+function sendJson(response, statusCode, payload) {
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8"
+  });
+  response.end(JSON.stringify(payload));
+}
+
+function normalizeServerUrl(serverUrl) {
+  const url = new URL(serverUrl);
+  const pathName = url.pathname.replace(/\/$/, "");
+
+  if (!pathName.toLowerCase().endsWith("/api/rest/v1")) {
+    url.pathname = `${pathName}/API/rest/v1`;
+  }
+
+  return url.toString().replace(/\/$/, "");
+}
+
+function basicAuthHeader(connection) {
+  const token = Buffer.from(`${connection.username}:${connection.password}`).toString("base64");
+  return `Basic ${token}`;
+}
+
+async function xprotectFetch(connection, resourcePath) {
+  const endpoint = `${connection.apiBase}/${resourcePath.replace(/^\//, "")}`;
+  const headers = {
+    Accept: "application/json"
+  };
+
+  if (connection.auth === "basic") {
+    headers.Authorization = basicAuthHeader(connection);
+  }
+
+  const response = await fetch(endpoint, {
+    headers,
+    signal: AbortSignal.timeout(10000)
+  });
+
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+function extractCount(payload, resourceName) {
+  if (typeof payload.count === "number") {
+    return payload.count;
+  }
+
+  if (Array.isArray(payload.data)) {
+    return payload.data.length;
+  }
+
+  if (payload.data && typeof payload.data.count === "number") {
+    return payload.data.count;
+  }
+
+  if (payload.data && Array.isArray(payload.data[resourceName])) {
+    return payload.data[resourceName].length;
+  }
+
+  if (Array.isArray(payload[resourceName])) {
+    return payload[resourceName].length;
+  }
+
+  return 0;
+}
+
+async function countResource(connection, resourceNames) {
+  const errors = [];
+
+  for (const resourceName of resourceNames) {
+    try {
+      const payload = await xprotectFetch(connection, `${resourceName}?count&disabled`);
+      return extractCount(payload, resourceName);
+    } catch (error) {
+      errors.push(`${resourceName}: ${error.message}`);
+    }
+  }
+
+  throw new Error(errors.join("; "));
+}
+
+async function buildInventory(connection) {
+  if (connection.sampleMode) {
+    return resourceMap.map((resource) => ({
+      id: resource.id,
+      count: sampleCounts[resource.id]
+    }));
+  }
+
+  const objects = [];
+
+  for (const resource of resourceMap) {
+    try {
+      objects.push({
+        id: resource.id,
+        count: await countResource(connection, resource.resources)
+      });
+    } catch (error) {
+      objects.push({
+        id: resource.id,
+        count: 0,
+        error: error.message
+      });
+    }
+  }
+
+  return objects;
+}
+
+function validateConnectionPayload(payload) {
+  if (!payload.url || !payload.username || !payload.password) {
+    throw new Error("Server URL, username, and password are required.");
+  }
+
+  if (payload.auth !== "basic" && !payload.sampleMode) {
+    throw new Error("Only Basic authentication is implemented in this prototype.");
+  }
+}
+
+async function connectSystem(system, payload) {
+  validateConnectionPayload(payload);
+
+  const connection = {
+    serverUrl: payload.url,
+    apiBase: normalizeServerUrl(payload.url),
+    username: payload.username,
+    password: payload.password,
+    auth: payload.auth,
+    sampleMode: payload.sampleMode
+  };
+
+  if (!connection.sampleMode) {
+    await xprotectFetch(connection, "sites?count");
+  }
+
+  sessions[system] = connection;
+
+  return {
+    serverUrl: connection.serverUrl,
+    apiBase: connection.apiBase,
+    sampleMode: connection.sampleMode
+  };
+}
+
+async function handleApi(request, response, requestUrl) {
+  try {
+    if (request.method === "POST" && requestUrl.pathname === "/api/source/connect") {
+      const payload = await readRequestJson(request);
+      sendJson(response, 200, await connectSystem("source", payload));
+      return;
+    }
+
+    if (request.method === "POST" && requestUrl.pathname === "/api/target/connect") {
+      const payload = await readRequestJson(request);
+      sendJson(response, 200, await connectSystem("target", payload));
+      return;
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/api/source/inventory") {
+      if (!sessions.source) {
+        sendJson(response, 409, {
+          error: "Source system is not connected."
+        });
+        return;
+      }
+
+      sendJson(response, 200, {
+        objects: await buildInventory(sessions.source)
+      });
+      return;
+    }
+
+    if (request.method === "POST" && requestUrl.pathname === "/api/migrate") {
+      const payload = await readRequestJson(request);
+
+      if (!sessions.source || !sessions.target) {
+        sendJson(response, 409, {
+          error: "Source and target systems must be connected before migration."
+        });
+        return;
+      }
+
+      if (!Array.isArray(payload.objects) || payload.objects.length === 0) {
+        sendJson(response, 400, {
+          error: "Select at least one configuration object to migrate."
+        });
+        return;
+      }
+
+      sendJson(response, 200, {
+        message: "Migration queued. Recordings and stored events were not moved.",
+        objects: payload.objects
+      });
+      return;
+    }
+
+    sendJson(response, 404, {
+      error: "API route not found."
+    });
+  } catch (error) {
+    sendJson(response, 400, {
+      error: error.message
+    });
+  }
+}
+
+function serveStatic(requestUrl, response) {
+  const requestedPath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
+  const filePath = path.normalize(path.join(root, decodeURIComponent(requestedPath)));
+  const relativePath = path.relative(root, filePath);
+
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    response.writeHead(403);
+    response.end("Forbidden");
+    return;
+  }
+
+  fs.readFile(filePath, (error, data) => {
+    if (error) {
+      response.writeHead(404);
+      response.end("Not found");
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": staticTypes[path.extname(filePath)] || "application/octet-stream"
+    });
+    response.end(data);
+  });
+}
+
+const server = http.createServer((request, response) => {
+  const requestUrl = new URL(request.url, `http://localhost:${port}`);
+
+  if (requestUrl.pathname.startsWith("/api/")) {
+    handleApi(request, response, requestUrl);
+    return;
+  }
+
+  serveStatic(requestUrl, response);
+});
+
+server.listen(port, () => {
+  console.log(`Migration console available at http://localhost:${port}`);
+});
