@@ -10,9 +10,9 @@ const objectDefinitions = [
     description: "Logical groups used by operators, rules, permissions, and views."
   },
   {
-    id: "roles",
-    label: "Roles",
-    description: "User roles, privileges, and access scope for the target system."
+    id: "users",
+    label: "Users",
+    description: "Basic and Windows users available for role and permission migration."
   },
   {
     id: "rules",
@@ -53,6 +53,16 @@ function addLog(message) {
   const item = document.createElement("li");
   item.textContent = message;
   activityLog.prepend(item);
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#039;"
+  })[character]);
 }
 
 function formPayload(form) {
@@ -131,8 +141,15 @@ async function connectSystem(system, form) {
     state[`${system}Connected`] = true;
     updateConnectionUi(system, "connected");
     addLog(`${label} connection established: ${result.serverUrl}`);
-    addLog(`${label} API base: ${result.apiBase}${result.probeResource ? `, probe: ${result.probeResource}` : ""}`);
-    await updateWorkspace();
+    if (result.probeResource) {
+      addLog(`${label} API validated successfully.`);
+    }
+
+    if (system === "source") {
+      await loadSourceInventory();
+    } else {
+      updateWorkspaceState();
+    }
   } catch (error) {
     state[`${system}Connected`] = false;
     updateConnectionUi(system, "error", error.message);
@@ -143,10 +160,10 @@ async function connectSystem(system, form) {
   }
 }
 
-async function updateWorkspace() {
+async function loadSourceInventory() {
   updateWorkspaceState();
 
-  if (!state.sourceConnected || !state.targetConnected) {
+  if (!state.sourceConnected) {
     return;
   }
 
@@ -174,17 +191,19 @@ async function updateWorkspace() {
 }
 
 function updateWorkspaceState() {
-  const ready = state.sourceConnected && state.targetConnected;
+  const hasSourceInventory = state.sourceConnected && state.inventory.length > 0;
 
-  emptyState.hidden = ready && state.inventory.length > 0;
-  objectList.hidden = !ready || state.inventory.length === 0;
-  selectAllButton.disabled = !ready || state.inventory.length === 0;
+  emptyState.hidden = hasSourceInventory;
+  objectList.hidden = !hasSourceInventory;
+  selectAllButton.disabled = !hasSourceInventory;
 
-  if (!ready) {
+  if (!state.sourceConnected) {
     emptyState.textContent =
-      "Connect both systems to load available cameras, camera groups, roles, rules, views, and alarms.";
+      "Connect the source system to load available cameras, views, users, rules, and alarms.";
     objectList.replaceChildren();
     state.inventory = [];
+  } else if (!state.targetConnected && hasSourceInventory) {
+    emptyState.hidden = true;
   }
 
   updateMigrateButton();
@@ -206,6 +225,11 @@ function renderMigrationObjects() {
       </label>
       <p class="object-count">${object.count}</p>
       <p class="object-description">${object.error ? `Unavailable: ${object.error}` : definition.description}</p>
+      ${object.items && object.items.length ? `
+        <ul class="object-preview">
+          ${object.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      ` : ""}
     `;
     fragment.append(card);
   });
@@ -228,7 +252,7 @@ function selectedObjects() {
 }
 
 function updateMigrateButton() {
-  migrateButton.disabled = selectedObjects().length === 0;
+  migrateButton.disabled = selectedObjects().length === 0 || !state.targetConnected;
 }
 
 sourceForm.addEventListener("submit", (event) => {

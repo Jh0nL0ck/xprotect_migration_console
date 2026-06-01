@@ -6,7 +6,7 @@ The current version focuses on the migration workflow:
 
 - Connect to a source XProtect system.
 - Connect to a target XProtect system.
-- Load available configuration object counts from the source system.
+- Load available cameras, views, users, rules, alarms, and related object counts from the source system.
 - Select which object types should be migrated.
 - Start a migration operation from the selected objects.
 - Clearly warn that recordings and stored events are not moved.
@@ -21,6 +21,7 @@ Implemented:
 - Source and target connection forms.
 - Local Node.js backend.
 - Internal API endpoints for source connection, target connection, inventory loading, and migration start.
+- Source inventory loading immediately after the source connection succeeds.
 - Optional sample data mode for demos.
 - Initial XProtect REST Config API adapter for inventory counts.
 

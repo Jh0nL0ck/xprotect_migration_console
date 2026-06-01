@@ -27,8 +27,8 @@ const resourceMap = [
     resources: ["cameraGroups", "deviceGroups", "cameraDeviceGroups"]
   },
   {
-    id: "roles",
-    resources: ["roles"]
+    id: "users",
+    resources: ["users", "basicUsers", "windowsUsers"]
   },
   {
     id: "rules",
@@ -47,7 +47,7 @@ const resourceMap = [
 const sampleCounts = {
   cameras: 128,
   cameraGroups: 18,
-  roles: 9,
+  users: 12,
   rules: 34,
   views: 42,
   alarms: 16
@@ -219,6 +219,10 @@ function extractCount(payload, resourceName) {
     return payload.data.length;
   }
 
+  if (Array.isArray(payload.array)) {
+    return payload.array.length;
+  }
+
   if (payload.data && typeof payload.data.count === "number") {
     return payload.data.count;
   }
@@ -234,13 +238,47 @@ function extractCount(payload, resourceName) {
   return 0;
 }
 
-async function countResource(connection, resourceNames) {
+function extractCollection(payload, resourceName) {
+  if (Array.isArray(payload.array)) {
+    return payload.array;
+  }
+
+  if (Array.isArray(payload.data)) {
+    return payload.data;
+  }
+
+  if (payload.data && Array.isArray(payload.data[resourceName])) {
+    return payload.data[resourceName];
+  }
+
+  if (Array.isArray(payload[resourceName])) {
+    return payload[resourceName];
+  }
+
+  return [];
+}
+
+function itemDisplayName(item) {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+
+  return item.displayName || item.name || item.userName || item.id || null;
+}
+
+async function summarizeResource(connection, resourceNames) {
   const errors = [];
 
   for (const resourceName of resourceNames) {
     try {
-      const payload = await xprotectFetch(connection, `${resourceName}?count&disabled`);
-      return extractCount(payload, resourceName);
+      const payload = await xprotectFetch(connection, `${resourceName}?disabled`);
+      const collection = extractCollection(payload, resourceName);
+      const items = collection.map(itemDisplayName).filter(Boolean).slice(0, 6);
+
+      return {
+        count: collection.length || extractCount(payload, resourceName),
+        items
+      };
     } catch (error) {
       errors.push(`${resourceName}: ${error.message}`);
     }
@@ -282,9 +320,12 @@ async function buildInventory(connection) {
 
   for (const resource of resourceMap) {
     try {
+      const summary = await summarizeResource(connection, resource.resources);
+
       objects.push({
         id: resource.id,
-        count: await countResource(connection, resource.resources)
+        count: summary.count,
+        items: summary.items
       });
     } catch (error) {
       objects.push({

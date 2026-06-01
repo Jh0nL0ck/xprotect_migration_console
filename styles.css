@@ -285,6 +285,22 @@ button:disabled {
   font-size: 13px;
 }
 
+.object-preview {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0 30px;
+  padding: 0;
+  color: #34414b;
+  font-size: 12px;
+  list-style: none;
+}
+
+.object-preview li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .migration-footer {
   margin-top: 18px;
   border-top: 1px solid var(--line);
