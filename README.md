@@ -77,4 +77,16 @@ The backend automatically appends:
 
 If the XProtect server uses a self-signed HTTPS certificate, enable **Allow self-signed certificate** in the connection form.
 
+The real connection flow uses the XProtect API Gateway Identity Provider:
+
+```text
+/api/idp/connect/token
+```
+
+The app requests a bearer token and then calls:
+
+```text
+/API/rest/v1
+```
+
 Recordings and stored events are intentionally out of scope for this migration workflow.

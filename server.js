@@ -53,6 +53,14 @@ const sampleCounts = {
   alarms: 16
 };
 
+function baseServerUrl(serverUrl) {
+  const url = new URL(serverUrl.trim());
+  url.pathname = "";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
 function readRequestJson(request) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -94,11 +102,6 @@ function normalizeServerUrl(serverUrl) {
   return url.toString().replace(/\/$/, "");
 }
 
-function basicAuthHeader(connection) {
-  const token = Buffer.from(`${connection.username}:${connection.password}`).toString("base64");
-  return `Basic ${token}`;
-}
-
 function readResponseBody(response) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -114,21 +117,17 @@ function readResponseBody(response) {
   });
 }
 
-async function xprotectFetch(connection, resourcePath) {
-  const endpoint = `${connection.apiBase}/${resourcePath.replace(/^\//, "")}`;
-  const endpointUrl = new URL(endpoint);
+async function httpRequest(connection, url, options = {}) {
+  const endpointUrl = new URL(url);
   const headers = {
-    Accept: "application/json"
+    ...options.headers
   };
-
-  if (connection.auth === "basic") {
-    headers.Authorization = basicAuthHeader(connection);
-  }
 
   const client = endpointUrl.protocol === "https:" ? https : http;
 
   const response = await new Promise((resolve, reject) => {
     const request = client.request(endpointUrl, {
+      method: options.method || "GET",
       headers,
       rejectUnauthorized: !connection.allowSelfSigned,
       timeout: 10000
@@ -138,6 +137,9 @@ async function xprotectFetch(connection, resourcePath) {
       request.destroy(new Error("Connection timed out after 10 seconds"));
     });
     request.on("error", reject);
+    if (options.body) {
+      request.write(options.body);
+    }
     request.end();
   });
 
@@ -156,6 +158,56 @@ async function xprotectFetch(connection, resourcePath) {
   } catch (error) {
     throw new Error("Server returned a non-JSON response");
   }
+}
+
+async function requestAccessToken(connection) {
+  const body = new URLSearchParams({
+    grant_type: "password",
+    username: connection.username,
+    password: connection.password,
+    client_id: "GrantValidatorClient"
+  }).toString();
+
+  const payload = await httpRequest(connection, `${connection.serverBase}/api/idp/connect/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Content-Length": Buffer.byteLength(body)
+    },
+    body
+  });
+
+  if (!payload.access_token) {
+    throw new Error("Identity Provider did not return an access token");
+  }
+
+  connection.accessToken = payload.access_token;
+  connection.tokenType = payload.token_type || "Bearer";
+  connection.tokenExpiresAt = Date.now() + ((payload.expires_in || 3600) * 1000);
+}
+
+async function ensureAccessToken(connection) {
+  if (connection.sampleMode) {
+    return;
+  }
+
+  if (!connection.accessToken || Date.now() > connection.tokenExpiresAt - 60000) {
+    await requestAccessToken(connection);
+  }
+}
+
+async function xprotectFetch(connection, resourcePath) {
+  await ensureAccessToken(connection);
+
+  const endpoint = `${connection.apiBase}/${resourcePath.replace(/^\//, "")}`;
+  const headers = {
+    Accept: "application/json",
+    Authorization: `${connection.tokenType} ${connection.accessToken}`
+  };
+
+  return httpRequest(connection, endpoint, {
+    headers
+  });
 }
 
 function extractCount(payload, resourceName) {
@@ -261,6 +313,7 @@ async function connectSystem(system, payload) {
 
   const connection = {
     serverUrl: payload.url,
+    serverBase: baseServerUrl(payload.url),
     apiBase: normalizeServerUrl(payload.url),
     username: payload.username,
     password: payload.password,
