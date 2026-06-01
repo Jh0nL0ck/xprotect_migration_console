@@ -10,6 +10,11 @@ const objectDefinitions = [
     description: "Logical groups used by operators, rules, permissions, and views."
   },
   {
+    id: "hardware",
+    label: "Hardware",
+    description: "Recording-server hardware devices that contain cameras, microphones, inputs, outputs, and metadata."
+  },
+  {
     id: "users",
     label: "Users",
     description: "Basic and Windows users available for role and permission migration."
@@ -52,6 +57,7 @@ const defaultUserPassword = document.querySelector("#defaultUserPassword");
 const forcePasswordChange = document.querySelector("#forcePasswordChange");
 const hardwareUsername = document.querySelector("#hardwareUsername");
 const hardwarePassword = document.querySelector("#hardwarePassword");
+const enableHardwareImport = document.querySelector("#enableHardwareImport");
 
 function addLog(message) {
   const item = document.createElement("li");
@@ -318,7 +324,8 @@ migrateButton.addEventListener("click", async () => {
           defaultUserPassword: defaultUserPassword.value,
           forcePasswordChange: forcePasswordChange.checked,
           hardwareUsername: hardwareUsername.value,
-          hardwarePassword: hardwarePassword.value
+          hardwarePassword: hardwarePassword.value,
+          enableHardwareImport: enableHardwareImport.checked
         }
       })
     });

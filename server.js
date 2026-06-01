@@ -27,6 +27,10 @@ const resourceMap = [
     resources: ["cameraGroups", "deviceGroups", "cameraDeviceGroups"]
   },
   {
+    id: "hardware",
+    resources: ["hardware"]
+  },
+  {
     id: "users",
     resources: ["users", "basicUsers", "windowsUsers"]
   },
@@ -47,6 +51,7 @@ const resourceMap = [
 const sampleCounts = {
   cameras: 128,
   cameraGroups: 18,
+  hardware: 22,
   users: 12,
   rules: 34,
   views: 42,
@@ -392,6 +397,43 @@ function itemDisplayName(item) {
   return item.displayName || item.name || item.userName || item.id || null;
 }
 
+function hardwareAddress(item) {
+  return firstValue(item, ["hardwareAddress", "address", "hostName", "hostname", "uri", "ipAddress"]);
+}
+
+function hardwareDriverName(item) {
+  const driver = firstValue(item, ["hardwareDriverDisplayName", "driverDisplayName", "hardwareDriverName", "driverName"]);
+
+  if (driver) {
+    return driver;
+  }
+
+  const driverRef = firstValue(item, ["hardwareDriverPath", "driverPath", "hardwareDriver"]);
+
+  if (driverRef && typeof driverRef === "object") {
+    return driverRef.displayName || driverRef.name || driverRef.id || "";
+  }
+
+  return driverRef || "";
+}
+
+function hardwarePreview(item) {
+  const name = itemDisplayName(item) || "Unnamed hardware";
+  const address = hardwareAddress(item);
+  const driver = hardwareDriverName(item);
+  const parts = [name];
+
+  if (address) {
+    parts.push(address);
+  }
+
+  if (driver) {
+    parts.push(driver);
+  }
+
+  return parts.join(" - ");
+}
+
 function normalizeName(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -530,7 +572,10 @@ async function summarizeResource(connection, resourceNames) {
     try {
       const payload = await xprotectFetch(connection, `${resourceName}?page=0&size=100&disabled`);
       const collection = extractCollection(payload, resourceName);
-      const items = collection.map(itemDisplayName).filter(Boolean).slice(0, 6);
+      const items = collection
+        .map((item) => resourceName === "hardware" ? hardwarePreview(item) : itemDisplayName(item))
+        .filter(Boolean)
+        .slice(0, 6);
 
       return {
         count: collection.length || extractCount(payload, resourceName),
@@ -597,6 +642,26 @@ async function buildInventory(connection) {
   return objects;
 }
 
+async function hardwareDiagnostics() {
+  if (!sessions.source) {
+    throw new Error("Source system is not connected.");
+  }
+
+  const data = await fetchResourceCollection(sessions.source, ["hardware"]);
+
+  return {
+    resource: data.resourceName,
+    count: data.collection.length,
+    hardware: data.collection.map((item) => ({
+      id: itemId(item),
+      name: itemDisplayName(item),
+      address: hardwareAddress(item),
+      driver: hardwareDriverName(item),
+      keys: Object.keys(item).slice(0, 40)
+    }))
+  };
+}
+
 async function migrateObjectType(objectId, options = {}) {
   const resource = resourceMap.find((item) => item.id === objectId);
 
@@ -621,10 +686,16 @@ async function migrateObjectType(objectId, options = {}) {
   }
 
   if (objectId === "cameras") {
-    const hardwareResult = await migrateHardwareForCameras(options);
     const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
     const targetData = await fetchResourceCollection(sessions.target, resource.resources);
     const mapping = buildNameMap(sourceData.collection, targetData.collection);
+    const shouldImportHardware = Boolean(options.enableHardwareImport);
+    const hardwareResult = shouldImportHardware
+      ? await migrateHardwareForCameras(options)
+      : {
+          imported: 0,
+          errors: ["Hardware import is disabled until the source hardware list is reviewed."]
+        };
     const errors = [...hardwareResult.errors];
 
     return {
@@ -940,6 +1011,11 @@ async function handleApi(request, response, requestUrl) {
       }
 
       sendJson(response, 200, await migrateObjects(payload.objects, payload.options || {}));
+      return;
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/api/source/hardware-diagnostics") {
+      sendJson(response, 200, await hardwareDiagnostics());
       return;
     }
 
