@@ -55,6 +55,18 @@ function addLog(message) {
   activityLog.prepend(item);
 }
 
+function addMigrationReport(results) {
+  results.slice().reverse().forEach((result) => {
+    const item = document.createElement("li");
+    const errors = result.errors && result.errors.length
+      ? ` Errors: ${result.errors.slice(0, 3).join(" | ")}${result.errors.length > 3 ? " | ..." : ""}`
+      : "";
+
+    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${errors}`;
+    activityLog.prepend(item);
+  });
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -300,6 +312,9 @@ migrateButton.addEventListener("click", async () => {
     });
 
     addLog(result.message);
+    if (Array.isArray(result.results)) {
+      addMigrationReport(result.results);
+    }
   } catch (error) {
     addLog(`Migration failed: ${error.message}`);
   } finally {

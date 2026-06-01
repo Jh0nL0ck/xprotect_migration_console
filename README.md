@@ -27,11 +27,21 @@ Implemented:
 
 Not implemented yet:
 
-- Real export/import of configuration objects.
 - Conflict detection between source and target.
 - Object mapping for servers, users, domains, storage paths, certificates, or licenses.
 - Secure credential storage.
 - Production authentication flows beyond the initial Basic authentication prototype.
+
+## Migration Behavior
+
+The migration action now performs a real REST attempt:
+
+1. Export selected object collections from the source server.
+2. Remove common read-only fields such as `id`, `path`, and link metadata.
+3. POST each object to the matching target REST resource.
+4. Report imported, exported, partial, skipped, or failed results per object type.
+
+Some XProtect objects, especially cameras, rules, views, alarms, and permissions, can depend on target-specific IDs, recording servers, users, devices, hardware, licenses, or storage paths. Those cases may require mapping logic before they can be imported successfully.
 
 ## Run Locally
 

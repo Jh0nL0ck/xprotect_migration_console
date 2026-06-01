@@ -313,6 +313,25 @@ async function xprotectFetch(connection, resourcePath) {
   });
 }
 
+async function xprotectJson(connection, resourcePath, method, payload) {
+  await ensureAccessToken(connection);
+
+  const body = JSON.stringify(payload);
+  const endpoint = `${connection.apiBase}/${resourcePath.replace(/^\//, "")}`;
+  const headers = {
+    Accept: "application/json",
+    Authorization: `${connection.tokenType} ${connection.accessToken}`,
+    "Content-Type": "application/json",
+    "Content-Length": Buffer.byteLength(body)
+  };
+
+  return httpRequest(connection, endpoint, {
+    method,
+    headers,
+    body
+  });
+}
+
 function extractCount(payload, resourceName) {
   if (typeof payload.count === "number") {
     return payload.count;
@@ -367,6 +386,47 @@ function itemDisplayName(item) {
   }
 
   return item.displayName || item.name || item.userName || item.id || null;
+}
+
+function sanitizeForCreate(item) {
+  const clone = JSON.parse(JSON.stringify(item));
+  const readOnlyKeys = [
+    "id",
+    "path",
+    "parentPath",
+    "lastModified",
+    "created",
+    "lastModifiedTime",
+    "createdTime",
+    "links",
+    "_links"
+  ];
+
+  for (const key of readOnlyKeys) {
+    delete clone[key];
+  }
+
+  return clone;
+}
+
+async function fetchResourceCollection(connection, resourceNames) {
+  const errors = [];
+
+  for (const resourceName of resourceNames) {
+    try {
+      const payload = await xprotectFetch(connection, `${resourceName}?page=0&size=100&disabled`);
+      const collection = extractCollection(payload, resourceName);
+
+      return {
+        resourceName,
+        collection
+      };
+    } catch (error) {
+      errors.push(`${resourceName}: ${error.message}`);
+    }
+  }
+
+  throw new Error(errors.join("; "));
 }
 
 async function summarizeResource(connection, resourceNames) {
@@ -441,6 +501,84 @@ async function buildInventory(connection) {
   }
 
   return objects;
+}
+
+async function migrateObjectType(objectId) {
+  const resource = resourceMap.find((item) => item.id === objectId);
+
+  if (!resource) {
+    return {
+      id: objectId,
+      status: "failed",
+      exported: 0,
+      imported: 0,
+      errors: [`Unknown object type: ${objectId}`]
+    };
+  }
+
+  if (sessions.source.sampleMode || sessions.target.sampleMode) {
+    return {
+      id: objectId,
+      status: "skipped",
+      exported: 0,
+      imported: 0,
+      errors: ["Sample data mode cannot perform a real migration."]
+    };
+  }
+
+  const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
+  const targetResource = sourceData.resourceName;
+  const result = {
+    id: objectId,
+    resource: targetResource,
+    status: "completed",
+    exported: sourceData.collection.length,
+    imported: 0,
+    errors: []
+  };
+
+  for (const item of sourceData.collection) {
+    try {
+      await xprotectJson(sessions.target, targetResource, "POST", sanitizeForCreate(item));
+      result.imported += 1;
+    } catch (error) {
+      result.errors.push(`${itemDisplayName(item) || "Unnamed item"}: ${error.message}`);
+    }
+  }
+
+  if (result.errors.length > 0 && result.imported > 0) {
+    result.status = "partial";
+  } else if (result.errors.length > 0) {
+    result.status = "failed";
+  }
+
+  return result;
+}
+
+async function migrateObjects(objectIds) {
+  const results = [];
+
+  for (const objectId of objectIds) {
+    try {
+      results.push(await migrateObjectType(objectId));
+    } catch (error) {
+      results.push({
+        id: objectId,
+        status: "failed",
+        exported: 0,
+        imported: 0,
+        errors: [error.message]
+      });
+    }
+  }
+
+  const imported = results.reduce((total, result) => total + result.imported, 0);
+  const exported = results.reduce((total, result) => total + result.exported, 0);
+
+  return {
+    message: `Migration finished: ${imported} of ${exported} exported items imported. Recordings and stored events were not moved.`,
+    results
+  };
 }
 
 function validateConnectionPayload(payload) {
@@ -534,10 +672,7 @@ async function handleApi(request, response, requestUrl) {
         return;
       }
 
-      sendJson(response, 200, {
-        message: "Migration queued. Recordings and stored events were not moved.",
-        objects: payload.objects
-      });
+      sendJson(response, 200, await migrateObjects(payload.objects));
       return;
     }
 
