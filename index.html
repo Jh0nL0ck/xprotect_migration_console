@@ -154,6 +154,30 @@
 
         <div class="object-list" id="objectList" hidden></div>
 
+        <div class="migration-options" id="migrationOptions">
+          <h3>Migration options</h3>
+          <div class="field-row">
+            <label>
+              Temporary user password
+              <input name="defaultUserPassword" id="defaultUserPassword" type="password" placeholder="Required for new basic users">
+            </label>
+            <label>
+              Hardware fallback username
+              <input name="hardwareUsername" id="hardwareUsername" type="text" placeholder="Only used if source does not expose one">
+            </label>
+          </div>
+          <div class="field-row">
+            <label>
+              Hardware fallback password
+              <input name="hardwarePassword" id="hardwarePassword" type="password" placeholder="Required if camera credentials are not exported">
+            </label>
+            <label class="checkbox-field option-checkbox">
+              <input name="forcePasswordChange" id="forcePasswordChange" type="checkbox" checked>
+              Force basic users to change password at next login
+            </label>
+          </div>
+        </div>
+
         <footer class="migration-footer">
           <p class="migration-note">
             Recordings and stored events will not be moved to the new system.

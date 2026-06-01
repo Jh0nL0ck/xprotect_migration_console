@@ -46,7 +46,9 @@ Some XProtect objects, especially cameras, rules, views, alarms, and permissions
 Current mapping behavior:
 
 - Cameras are matched by name against existing target cameras. The app does not create cameras directly because cameras depend on recording server and hardware configuration.
-- Users are matched by name against existing target users. The app does not create users directly because existing passwords cannot be exported from XProtect.
+- Camera migration attempts to add source hardware to the first target recording server using the `AddHardware` task. If source credentials are not available, use the hardware fallback username/password fields.
+- Basic users can be created with a temporary password and the force-password-change option enabled. Existing passwords cannot be exported from XProtect.
+- Users are matched by name against existing target users before creating missing users.
 - Alarm payloads attempt to replace source camera IDs with matching target camera IDs before import.
 - Missing matches are reported as `requires_mapping`.
 

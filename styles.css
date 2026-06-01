@@ -301,6 +301,23 @@ button:disabled {
   white-space: nowrap;
 }
 
+.migration-options {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.migration-options h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.option-checkbox {
+  align-self: end;
+  min-height: 42px;
+  padding-bottom: 3px;
+}
+
 .migration-footer {
   margin-top: 18px;
   border-top: 1px solid var(--line);

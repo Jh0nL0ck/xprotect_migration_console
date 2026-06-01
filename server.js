@@ -332,6 +332,10 @@ async function xprotectJson(connection, resourcePath, method, payload) {
   });
 }
 
+async function xprotectTask(connection, resourcePath, taskName, payload) {
+  return xprotectJson(connection, `${resourcePath.replace(/^\//, "")}?task=${encodeURIComponent(taskName)}`, "POST", payload);
+}
+
 function extractCount(payload, resourceName) {
   if (typeof payload.count === "number") {
     return payload.count;
@@ -394,6 +398,32 @@ function normalizeName(value) {
 
 function itemId(item) {
   return item.id || item.path || item.referenceId || null;
+}
+
+function firstValue(item, keys) {
+  for (const key of keys) {
+    if (item && item[key] !== undefined && item[key] !== null && item[key] !== "") {
+      return item[key];
+    }
+  }
+
+  return "";
+}
+
+function referencePath(type, idOrPath) {
+  if (!idOrPath) {
+    return null;
+  }
+
+  if (typeof idOrPath === "object") {
+    return idOrPath;
+  }
+
+  if (String(idOrPath).includes("/")) {
+    return idOrPath;
+  }
+
+  return `${type}/${idOrPath}`;
 }
 
 function buildNameMap(sourceItems, targetItems) {
@@ -567,7 +597,7 @@ async function buildInventory(connection) {
   return objects;
 }
 
-async function migrateObjectType(objectId) {
+async function migrateObjectType(objectId, options = {}) {
   const resource = resourceMap.find((item) => item.id === objectId);
 
   if (!resource) {
@@ -591,39 +621,29 @@ async function migrateObjectType(objectId) {
   }
 
   if (objectId === "cameras") {
+    const hardwareResult = await migrateHardwareForCameras(options);
     const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
     const targetData = await fetchResourceCollection(sessions.target, resource.resources);
     const mapping = buildNameMap(sourceData.collection, targetData.collection);
+    const errors = [...hardwareResult.errors];
 
     return {
       id: objectId,
-      status: mapping.missing.length ? "requires_mapping" : "mapped",
+      status: errors.length || mapping.missing.length ? "requires_mapping" : "mapped",
       exported: sourceData.collection.length,
-      imported: 0,
+      imported: hardwareResult.imported,
       mapped: mapping.mapped.length,
-      errors: mapping.missing.length
-        ? [`${mapping.missing.length} cameras were not found by name on the target: ${mapping.missing.slice(0, 8).join(", ")}`]
-        : ["Cameras were mapped by name. Camera creation is not attempted because cameras depend on recording server and hardware configuration."]
+      errors: [
+        ...errors,
+        ...(mapping.missing.length
+          ? [`${mapping.missing.length} cameras were not found by name on the target after hardware import: ${mapping.missing.slice(0, 8).join(", ")}`]
+          : [])
+      ]
     };
   }
 
   if (objectId === "users") {
-    const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
-    const targetData = await fetchResourceCollection(sessions.target, resource.resources).catch(() => ({
-      collection: []
-    }));
-    const mapping = buildNameMap(sourceData.collection, targetData.collection);
-
-    return {
-      id: objectId,
-      status: mapping.missing.length ? "requires_mapping" : "mapped",
-      exported: sourceData.collection.length,
-      imported: 0,
-      mapped: mapping.mapped.length,
-      errors: mapping.missing.length
-        ? [`${mapping.missing.length} users are missing on target or require a temporary password: ${mapping.missing.slice(0, 8).join(", ")}`]
-        : ["Users were mapped by name. User creation is not attempted because XProtect does not expose existing passwords."]
-    };
+    return migrateBasicUsers(options);
   }
 
   const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
@@ -659,6 +679,124 @@ async function migrateObjectType(objectId) {
   return result;
 }
 
+async function migrateBasicUsers(options = {}) {
+  const sourceData = await fetchResourceCollection(sessions.source, ["basicUsers", "users"]);
+  const targetData = await fetchResourceCollection(sessions.target, ["basicUsers", "users"]).catch(() => ({
+    collection: []
+  }));
+  const mapping = buildNameMap(sourceData.collection, targetData.collection);
+  const existing = new Set(mapping.mapped.map((item) => normalizeName(item.name)));
+  const result = {
+    id: "users",
+    resource: sourceData.resourceName,
+    status: "completed",
+    exported: sourceData.collection.length,
+    imported: 0,
+    mapped: mapping.mapped.length,
+    errors: []
+  };
+
+  if (!options.defaultUserPassword) {
+    return {
+      ...result,
+      status: mapping.missing.length ? "requires_mapping" : "mapped",
+      errors: mapping.missing.length
+        ? ["Temporary user password is required to create missing basic users."]
+        : ["Users were mapped by name."]
+    };
+  }
+
+  for (const item of sourceData.collection) {
+    const name = itemDisplayName(item);
+
+    if (existing.has(normalizeName(name))) {
+      continue;
+    }
+
+    try {
+      const payload = sanitizeForCreate(item);
+      payload.password = options.defaultUserPassword;
+      payload.forcePasswordChange = Boolean(options.forcePasswordChange);
+      payload.mustChangePassword = Boolean(options.forcePasswordChange);
+      payload.changePasswordOnNextLogin = Boolean(options.forcePasswordChange);
+
+      await xprotectJson(sessions.target, sourceData.resourceName, "POST", payload);
+      result.imported += 1;
+    } catch (error) {
+      result.errors.push(`${name || "Unnamed user"}: ${error.message}`);
+    }
+  }
+
+  if (result.errors.length > 0 && result.imported > 0) {
+    result.status = "partial";
+  } else if (result.errors.length > 0) {
+    result.status = "failed";
+  }
+
+  return result;
+}
+
+async function migrateHardwareForCameras(options = {}) {
+  const result = {
+    imported: 0,
+    errors: []
+  };
+
+  let sourceHardware;
+  let targetRecordingServers;
+
+  try {
+    sourceHardware = await fetchResourceCollection(sessions.source, ["hardware"]);
+  } catch (error) {
+    result.errors.push(`Could not read source hardware: ${error.message}`);
+    return result;
+  }
+
+  try {
+    targetRecordingServers = await fetchResourceCollection(sessions.target, ["recordingServers"]);
+  } catch (error) {
+    result.errors.push(`Could not read target recording servers: ${error.message}`);
+    return result;
+  }
+
+  const targetRecordingServer = targetRecordingServers.collection[0];
+
+  if (!targetRecordingServer) {
+    result.errors.push("No target recording server was found.");
+    return result;
+  }
+
+  const recordingServerId = itemId(targetRecordingServer);
+
+  for (const hardware of sourceHardware.collection) {
+    const name = itemDisplayName(hardware);
+    const hardwareAddress = firstValue(hardware, ["hardwareAddress", "address", "hostName", "hostname", "uri", "ipAddress"]);
+    const userName = firstValue(hardware, ["userName", "username"]) || options.hardwareUsername;
+    const password = firstValue(hardware, ["password"]) || options.hardwarePassword;
+    const driver = firstValue(hardware, ["hardwareDriverPath", "driverPath", "hardwareDriver"]);
+
+    if (!hardwareAddress || !userName || !password || !driver) {
+      result.errors.push(`${name || "Unnamed hardware"}: requires hardware address, username, password, and driver mapping.`);
+      continue;
+    }
+
+    try {
+      await xprotectTask(sessions.target, `recordingServers/${recordingServerId}`, "AddHardware", {
+        hardwareAddress,
+        hardwareDriverPath: referencePath("hardwareDrivers", firstValue(driver, ["id", "path"]) || driver),
+        userName,
+        password,
+        customData: ""
+      });
+      result.imported += 1;
+    } catch (error) {
+      result.errors.push(`${name || hardwareAddress}: ${error.message}`);
+    }
+  }
+
+  return result;
+}
+
 async function cameraIdMap() {
   const sourceData = await fetchResourceCollection(sessions.source, ["cameras"]);
   const targetData = await fetchResourceCollection(sessions.target, ["cameras"]);
@@ -684,12 +822,12 @@ async function applyCameraMapping(payload) {
   return replaceMappedIds(payload, idMap);
 }
 
-async function migrateObjects(objectIds) {
+async function migrateObjects(objectIds, options = {}) {
   const results = [];
 
   for (const objectId of objectIds) {
     try {
-      results.push(await migrateObjectType(objectId));
+      results.push(await migrateObjectType(objectId, options));
     } catch (error) {
       results.push({
         id: objectId,
@@ -801,7 +939,7 @@ async function handleApi(request, response, requestUrl) {
         return;
       }
 
-      sendJson(response, 200, await migrateObjects(payload.objects));
+      sendJson(response, 200, await migrateObjects(payload.objects, payload.options || {}));
       return;
     }
 

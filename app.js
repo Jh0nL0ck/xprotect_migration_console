@@ -48,6 +48,10 @@ const objectList = document.querySelector("#objectList");
 const selectAllButton = document.querySelector("#selectAll");
 const migrateButton = document.querySelector("#migrateButton");
 const activityLog = document.querySelector("#activityLog");
+const defaultUserPassword = document.querySelector("#defaultUserPassword");
+const forcePasswordChange = document.querySelector("#forcePasswordChange");
+const hardwareUsername = document.querySelector("#hardwareUsername");
+const hardwarePassword = document.querySelector("#hardwarePassword");
 
 function addLog(message) {
   const item = document.createElement("li");
@@ -309,6 +313,13 @@ migrateButton.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({
         objects: objects.map((object) => object.id)
+        ,
+        options: {
+          defaultUserPassword: defaultUserPassword.value,
+          forcePasswordChange: forcePasswordChange.checked,
+          hardwareUsername: hardwareUsername.value,
+          hardwarePassword: hardwarePassword.value
+        }
       })
     });
 
