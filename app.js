@@ -61,8 +61,9 @@ function addMigrationReport(results) {
     const errors = result.errors && result.errors.length
       ? ` Errors: ${result.errors.slice(0, 3).join(" | ")}${result.errors.length > 3 ? " | ..." : ""}`
       : "";
+    const mapped = typeof result.mapped === "number" ? ` Mapped ${result.mapped}/${result.exported}.` : "";
 
-    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${errors}`;
+    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${mapped}${errors}`;
     activityLog.prepend(item);
   });
 }

@@ -43,6 +43,13 @@ The migration action now performs a real REST attempt:
 
 Some XProtect objects, especially cameras, rules, views, alarms, and permissions, can depend on target-specific IDs, recording servers, users, devices, hardware, licenses, or storage paths. Those cases may require mapping logic before they can be imported successfully.
 
+Current mapping behavior:
+
+- Cameras are matched by name against existing target cameras. The app does not create cameras directly because cameras depend on recording server and hardware configuration.
+- Users are matched by name against existing target users. The app does not create users directly because existing passwords cannot be exported from XProtect.
+- Alarm payloads attempt to replace source camera IDs with matching target camera IDs before import.
+- Missing matches are reported as `requires_mapping`.
+
 ## Run Locally
 
 Requirements:

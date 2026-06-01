@@ -388,6 +388,70 @@ function itemDisplayName(item) {
   return item.displayName || item.name || item.userName || item.id || null;
 }
 
+function normalizeName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function itemId(item) {
+  return item.id || item.path || item.referenceId || null;
+}
+
+function buildNameMap(sourceItems, targetItems) {
+  const targetByName = new Map();
+  const mapped = [];
+  const missing = [];
+
+  for (const target of targetItems) {
+    const name = normalizeName(itemDisplayName(target));
+
+    if (name && !targetByName.has(name)) {
+      targetByName.set(name, target);
+    }
+  }
+
+  for (const source of sourceItems) {
+    const sourceName = itemDisplayName(source);
+    const target = targetByName.get(normalizeName(sourceName));
+
+    if (target) {
+      mapped.push({
+        sourceId: itemId(source),
+        targetId: itemId(target),
+        name: sourceName
+      });
+    } else {
+      missing.push(sourceName || itemId(source) || "Unnamed item");
+    }
+  }
+
+  return {
+    mapped,
+    missing
+  };
+}
+
+function replaceMappedIds(value, idMap) {
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceMappedIds(item, idMap));
+  }
+
+  if (value && typeof value === "object") {
+    const clone = {};
+
+    for (const [key, childValue] of Object.entries(value)) {
+      clone[key] = replaceMappedIds(childValue, idMap);
+    }
+
+    return clone;
+  }
+
+  if (typeof value === "string" && idMap.has(value)) {
+    return idMap.get(value);
+  }
+
+  return value;
+}
+
 function sanitizeForCreate(item) {
   const clone = JSON.parse(JSON.stringify(item));
   const readOnlyKeys = [
@@ -526,6 +590,42 @@ async function migrateObjectType(objectId) {
     };
   }
 
+  if (objectId === "cameras") {
+    const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
+    const targetData = await fetchResourceCollection(sessions.target, resource.resources);
+    const mapping = buildNameMap(sourceData.collection, targetData.collection);
+
+    return {
+      id: objectId,
+      status: mapping.missing.length ? "requires_mapping" : "mapped",
+      exported: sourceData.collection.length,
+      imported: 0,
+      mapped: mapping.mapped.length,
+      errors: mapping.missing.length
+        ? [`${mapping.missing.length} cameras were not found by name on the target: ${mapping.missing.slice(0, 8).join(", ")}`]
+        : ["Cameras were mapped by name. Camera creation is not attempted because cameras depend on recording server and hardware configuration."]
+    };
+  }
+
+  if (objectId === "users") {
+    const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
+    const targetData = await fetchResourceCollection(sessions.target, resource.resources).catch(() => ({
+      collection: []
+    }));
+    const mapping = buildNameMap(sourceData.collection, targetData.collection);
+
+    return {
+      id: objectId,
+      status: mapping.missing.length ? "requires_mapping" : "mapped",
+      exported: sourceData.collection.length,
+      imported: 0,
+      mapped: mapping.mapped.length,
+      errors: mapping.missing.length
+        ? [`${mapping.missing.length} users are missing on target or require a temporary password: ${mapping.missing.slice(0, 8).join(", ")}`]
+        : ["Users were mapped by name. User creation is not attempted because XProtect does not expose existing passwords."]
+    };
+  }
+
   const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
   const targetResource = sourceData.resourceName;
   const result = {
@@ -539,7 +639,11 @@ async function migrateObjectType(objectId) {
 
   for (const item of sourceData.collection) {
     try {
-      await xprotectJson(sessions.target, targetResource, "POST", sanitizeForCreate(item));
+      const payload = objectId === "alarms"
+        ? await applyCameraMapping(sanitizeForCreate(item))
+        : sanitizeForCreate(item);
+
+      await xprotectJson(sessions.target, targetResource, "POST", payload);
       result.imported += 1;
     } catch (error) {
       result.errors.push(`${itemDisplayName(item) || "Unnamed item"}: ${error.message}`);
@@ -553,6 +657,31 @@ async function migrateObjectType(objectId) {
   }
 
   return result;
+}
+
+async function cameraIdMap() {
+  const sourceData = await fetchResourceCollection(sessions.source, ["cameras"]);
+  const targetData = await fetchResourceCollection(sessions.target, ["cameras"]);
+  const mapping = buildNameMap(sourceData.collection, targetData.collection);
+  const idMap = new Map();
+
+  for (const item of mapping.mapped) {
+    if (item.sourceId && item.targetId) {
+      idMap.set(item.sourceId, item.targetId);
+    }
+  }
+
+  return idMap;
+}
+
+async function applyCameraMapping(payload) {
+  const idMap = await cameraIdMap();
+
+  if (idMap.size === 0) {
+    return payload;
+  }
+
+  return replaceMappedIds(payload, idMap);
 }
 
 async function migrateObjects(objectIds) {
