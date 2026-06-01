@@ -689,28 +689,21 @@ async function migrateObjectType(objectId, options = {}) {
     const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
     const targetData = await fetchResourceCollection(sessions.target, resource.resources);
     const mapping = buildNameMap(sourceData.collection, targetData.collection);
-    const shouldImportHardware = Boolean(options.enableHardwareImport);
-    const hardwareResult = shouldImportHardware
-      ? await migrateHardwareForCameras(options)
-      : {
-          imported: 0,
-          errors: ["Hardware import is disabled until the source hardware list is reviewed."]
-        };
-    const errors = [...hardwareResult.errors];
 
     return {
       id: objectId,
-      status: errors.length || mapping.missing.length ? "requires_mapping" : "mapped",
+      status: mapping.missing.length ? "requires_mapping" : "mapped",
       exported: sourceData.collection.length,
-      imported: hardwareResult.imported,
+      imported: 0,
       mapped: mapping.mapped.length,
-      errors: [
-        ...errors,
-        ...(mapping.missing.length
-          ? [`${mapping.missing.length} cameras were not found by name on the target after hardware import: ${mapping.missing.slice(0, 8).join(", ")}`]
-          : [])
-      ]
+      errors: mapping.missing.length
+        ? [`${mapping.missing.length} cameras were not found by name on the target. Import Hardware first, then migrate dependent objects: ${mapping.missing.slice(0, 8).join(", ")}`]
+        : ["Cameras were mapped by name. Camera objects are created through hardware import, not by direct camera POST."]
     };
+  }
+
+  if (objectId === "hardware") {
+    return migrateHardwareForCameras(options);
   }
 
   if (objectId === "users") {

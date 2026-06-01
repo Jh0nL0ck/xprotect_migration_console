@@ -2,7 +2,7 @@ const objectDefinitions = [
   {
     id: "cameras",
     label: "Cameras",
-    description: "Hardware devices, streams, names, and core camera configuration."
+    description: "Camera objects created by hardware import; used here for mapping and dependent objects."
   },
   {
     id: "cameraGroups",
@@ -57,7 +57,6 @@ const defaultUserPassword = document.querySelector("#defaultUserPassword");
 const forcePasswordChange = document.querySelector("#forcePasswordChange");
 const hardwareUsername = document.querySelector("#hardwareUsername");
 const hardwarePassword = document.querySelector("#hardwarePassword");
-const enableHardwareImport = document.querySelector("#enableHardwareImport");
 
 function addLog(message) {
   const item = document.createElement("li");
@@ -324,8 +323,7 @@ migrateButton.addEventListener("click", async () => {
           defaultUserPassword: defaultUserPassword.value,
           forcePasswordChange: forcePasswordChange.checked,
           hardwareUsername: hardwareUsername.value,
-          hardwarePassword: hardwarePassword.value,
-          enableHardwareImport: enableHardwareImport.checked
+          hardwarePassword: hardwarePassword.value
         }
       })
     });
