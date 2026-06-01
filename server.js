@@ -1,4 +1,5 @@
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
@@ -83,7 +84,7 @@ function sendJson(response, statusCode, payload) {
 }
 
 function normalizeServerUrl(serverUrl) {
-  const url = new URL(serverUrl);
+  const url = new URL(serverUrl.trim());
   const pathName = url.pathname.replace(/\/$/, "");
 
   if (!pathName.toLowerCase().endsWith("/api/rest/v1")) {
@@ -98,8 +99,24 @@ function basicAuthHeader(connection) {
   return `Basic ${token}`;
 }
 
+function readResponseBody(response) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+
+    response.setEncoding("utf8");
+    response.on("data", (chunk) => {
+      body += chunk;
+    });
+    response.on("end", () => {
+      resolve(body);
+    });
+    response.on("error", reject);
+  });
+}
+
 async function xprotectFetch(connection, resourcePath) {
   const endpoint = `${connection.apiBase}/${resourcePath.replace(/^\//, "")}`;
+  const endpointUrl = new URL(endpoint);
   const headers = {
     Accept: "application/json"
   };
@@ -108,16 +125,37 @@ async function xprotectFetch(connection, resourcePath) {
     headers.Authorization = basicAuthHeader(connection);
   }
 
-  const response = await fetch(endpoint, {
-    headers,
-    signal: AbortSignal.timeout(10000)
+  const client = endpointUrl.protocol === "https:" ? https : http;
+
+  const response = await new Promise((resolve, reject) => {
+    const request = client.request(endpointUrl, {
+      headers,
+      rejectUnauthorized: !connection.allowSelfSigned,
+      timeout: 10000
+    }, resolve);
+
+    request.on("timeout", () => {
+      request.destroy(new Error("Connection timed out after 10 seconds"));
+    });
+    request.on("error", reject);
+    request.end();
   });
 
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+  const body = await readResponseBody(response);
+
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new Error(`${response.statusCode} ${response.statusMessage}`);
   }
 
-  return response.json();
+  if (!body) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    throw new Error("Server returned a non-JSON response");
+  }
 }
 
 function extractCount(payload, resourceName) {
@@ -157,6 +195,27 @@ async function countResource(connection, resourceNames) {
   }
 
   throw new Error(errors.join("; "));
+}
+
+async function probeConnection(connection) {
+  const errors = [];
+  const probeResources = [
+    "cameras?count&disabled",
+    "roles?count",
+    "rules?count",
+    "alarmDefinitions?count"
+  ];
+
+  for (const resourcePath of probeResources) {
+    try {
+      await xprotectFetch(connection, resourcePath);
+      return resourcePath;
+    } catch (error) {
+      errors.push(`${resourcePath}: ${error.message}`);
+    }
+  }
+
+  throw new Error(`Could not reach the XProtect REST Config API at ${connection.apiBase}. Tried ${errors.join("; ")}`);
 }
 
 async function buildInventory(connection) {
@@ -206,11 +265,12 @@ async function connectSystem(system, payload) {
     username: payload.username,
     password: payload.password,
     auth: payload.auth,
-    sampleMode: payload.sampleMode
+    sampleMode: payload.sampleMode,
+    allowSelfSigned: payload.allowSelfSigned
   };
 
   if (!connection.sampleMode) {
-    await xprotectFetch(connection, "sites?count");
+    connection.probeResource = await probeConnection(connection);
   }
 
   sessions[system] = connection;
@@ -218,7 +278,8 @@ async function connectSystem(system, payload) {
   return {
     serverUrl: connection.serverUrl,
     apiBase: connection.apiBase,
-    sampleMode: connection.sampleMode
+    sampleMode: connection.sampleMode,
+    probeResource: connection.probeResource
   };
 }
 

@@ -63,4 +63,18 @@ server.js     Local backend and XProtect adapter prototype
 
 Use **Use sample data** only for demos or UI testing. When sample mode is disabled, the backend attempts to query the configured XProtect server through its REST Config API.
 
+For real XProtect tests, use the base server address, for example:
+
+```text
+https://192.168.1.50
+```
+
+The backend automatically appends:
+
+```text
+/API/rest/v1
+```
+
+If the XProtect server uses a self-signed HTTPS certificate, enable **Allow self-signed certificate** in the connection form.
+
 Recordings and stored events are intentionally out of scope for this migration workflow.

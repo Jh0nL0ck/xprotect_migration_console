@@ -63,7 +63,8 @@ function formPayload(form) {
     username: data.get("username"),
     password: data.get("password"),
     auth: data.get("auth"),
-    sampleMode: data.get("sampleMode") === "on"
+    sampleMode: data.get("sampleMode") === "on",
+    allowSelfSigned: data.get("allowSelfSigned") === "on"
   };
 }
 
@@ -130,6 +131,7 @@ async function connectSystem(system, form) {
     state[`${system}Connected`] = true;
     updateConnectionUi(system, "connected");
     addLog(`${label} connection established: ${result.serverUrl}`);
+    addLog(`${label} API base: ${result.apiBase}${result.probeResource ? `, probe: ${result.probeResource}` : ""}`);
     await updateWorkspace();
   } catch (error) {
     state[`${system}Connected`] = false;
@@ -203,7 +205,7 @@ function renderMigrationObjects() {
         <span>${definition.label}</span>
       </label>
       <p class="object-count">${object.count}</p>
-      <p class="object-description">${definition.description}</p>
+      <p class="object-description">${object.error ? `Unavailable: ${object.error}` : definition.description}</p>
     `;
     fragment.append(card);
   });
