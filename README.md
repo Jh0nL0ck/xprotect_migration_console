@@ -90,4 +90,12 @@ The app requests a bearer token and then calls:
 /API/rest/v1
 ```
 
+For XProtect versions such as 2023 R3, the app first reads:
+
+```text
+/API/.well-known/uris
+```
+
+and uses the returned IDP/API paths when they differ from newer defaults.
+
 Recordings and stored events are intentionally out of scope for this migration workflow.

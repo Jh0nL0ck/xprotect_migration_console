@@ -61,6 +61,14 @@ function baseServerUrl(serverUrl) {
   return url.toString().replace(/\/$/, "");
 }
 
+function sameOriginUrl(baseUrl, pathName) {
+  const url = new URL(baseUrl);
+  url.pathname = pathName;
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
 function readRequestJson(request) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -160,6 +168,47 @@ async function httpRequest(connection, url, options = {}) {
   }
 }
 
+async function tryJsonRequest(connection, urls, options = {}) {
+  const errors = [];
+
+  for (const url of urls) {
+    try {
+      return {
+        payload: await httpRequest(connection, url, options),
+        url
+      };
+    } catch (error) {
+      errors.push(`${url}: ${error.message}`);
+    }
+  }
+
+  throw new Error(errors.join("; "));
+}
+
+async function discoverGateway(connection) {
+  const discoveryUrls = [
+    `${connection.serverBase}/API/.well-known/uris`,
+    `${connection.serverBase}/api/.well-known/uris`
+  ];
+  const result = await tryJsonRequest(connection, discoveryUrls);
+  const discovery = result.payload;
+
+  connection.productVersion = discovery.ProductVersion;
+
+  if (discovery.IdentityProvider) {
+    const identityUrl = new URL(discovery.IdentityProvider);
+    connection.identityCandidates = [
+      sameOriginUrl(connection.serverBase, identityUrl.pathname),
+      discovery.IdentityProvider.replace(/\/$/, "")
+    ];
+  }
+
+  if (Array.isArray(discovery.ApiGateways) && discovery.ApiGateways.length > 0) {
+    const apiGatewayUrl = new URL(discovery.ApiGateways[0]);
+    connection.apiBase = `${sameOriginUrl(connection.serverBase, apiGatewayUrl.pathname)}/rest/v1`;
+  }
+}
+
 async function requestAccessToken(connection) {
   const body = new URLSearchParams({
     grant_type: "password",
@@ -168,7 +217,15 @@ async function requestAccessToken(connection) {
     client_id: "GrantValidatorClient"
   }).toString();
 
-  const payload = await httpRequest(connection, `${connection.serverBase}/api/idp/connect/token`, {
+  const identityCandidates = connection.identityCandidates || [
+    `${connection.serverBase}/IDP`,
+    `${connection.serverBase}/api/idp`
+  ];
+  const tokenUrls = [...new Set(identityCandidates.flatMap((identityBase) => [
+    `${identityBase}/connect/token`,
+    `${identityBase}/connect/token/`
+  ]))];
+  const result = await tryJsonRequest(connection, tokenUrls, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -176,6 +233,7 @@ async function requestAccessToken(connection) {
     },
     body
   });
+  const payload = result.payload;
 
   if (!payload.access_token) {
     throw new Error("Identity Provider did not return an access token");
@@ -184,6 +242,7 @@ async function requestAccessToken(connection) {
   connection.accessToken = payload.access_token;
   connection.tokenType = payload.token_type || "Bearer";
   connection.tokenExpiresAt = Date.now() + ((payload.expires_in || 3600) * 1000);
+  connection.tokenEndpoint = result.url;
 }
 
 async function ensureAccessToken(connection) {
@@ -271,7 +330,7 @@ async function summarizeResource(connection, resourceNames) {
 
   for (const resourceName of resourceNames) {
     try {
-      const payload = await xprotectFetch(connection, `${resourceName}?disabled`);
+      const payload = await xprotectFetch(connection, `${resourceName}?page=0&size=100&disabled`);
       const collection = extractCollection(payload, resourceName);
       const items = collection.map(itemDisplayName).filter(Boolean).slice(0, 6);
 
@@ -290,10 +349,9 @@ async function summarizeResource(connection, resourceNames) {
 async function probeConnection(connection) {
   const errors = [];
   const probeResources = [
-    "cameras?count&disabled",
-    "roles?count",
-    "rules?count",
-    "alarmDefinitions?count"
+    "cameras?page=0&size=1&disabled",
+    "rules?page=0&size=1&disabled",
+    "alarmDefinitions?page=0&size=1&disabled"
   ];
 
   for (const resourcePath of probeResources) {
@@ -364,6 +422,7 @@ async function connectSystem(system, payload) {
   };
 
   if (!connection.sampleMode) {
+    await discoverGateway(connection);
     connection.probeResource = await probeConnection(connection);
   }
 
@@ -373,7 +432,8 @@ async function connectSystem(system, payload) {
     serverUrl: connection.serverUrl,
     apiBase: connection.apiBase,
     sampleMode: connection.sampleMode,
-    probeResource: connection.probeResource
+    probeResource: connection.probeResource,
+    productVersion: connection.productVersion
   };
 }
 

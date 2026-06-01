@@ -142,7 +142,7 @@ async function connectSystem(system, form) {
     updateConnectionUi(system, "connected");
     addLog(`${label} connection established: ${result.serverUrl}`);
     if (result.probeResource) {
-      addLog(`${label} API validated successfully.`);
+      addLog(`${label} API validated successfully${result.productVersion ? `, version ${result.productVersion}` : ""}.`);
     }
 
     if (system === "source") {
