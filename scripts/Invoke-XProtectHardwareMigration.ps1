@@ -49,11 +49,21 @@ try {
 
     $runDirectory = Split-Path -Parent $InputPath
     $exportPath = Join-Path $runDirectory "hardware.xlsx"
+    $csvExportPath = Join-Path $runDirectory "hardware.csv"
     $deviceTypes = @("Camera", "Microphone", "Speaker", "Metadata", "Input", "Output")
 
     Connect-XProtect -Connection $config.source -Name "xma-source"
     $sourceHardware = Get-VmsRecordingServer | Get-VmsHardware
-    $sourceHardware | Export-VmsHardware -Path $exportPath -DeviceType $deviceTypes -EnableFilter All
+    try {
+        $sourceHardware | Export-VmsHardware -Path $exportPath -DeviceType $deviceTypes -EnableFilter All
+    } catch {
+        if ($_.Exception.Message -match "ImportExcel") {
+            $exportPath = $csvExportPath
+            $sourceHardware | Export-VmsHardware -Path $exportPath -DeviceType $deviceTypes -EnableFilter All
+        } else {
+            throw
+        }
+    }
     $exportedCount = @($sourceHardware).Count
     Disconnect-XProtect
 
@@ -88,6 +98,10 @@ try {
 
     if (Test-Path -LiteralPath $exportPath) {
         Remove-Item -LiteralPath $exportPath -Force
+    }
+
+    if ((Test-Path -LiteralPath $csvExportPath) -and ($csvExportPath -ne $exportPath)) {
+        Remove-Item -LiteralPath $csvExportPath -Force
     }
 
     [pscustomobject]@{
