@@ -747,6 +747,96 @@ async function runPowerShellJson(scriptPath, input) {
   });
 }
 
+function runPowerShellText(command, timeoutMs = 10 * 60 * 1000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      command
+    ], {
+      windowsHide: true
+    });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error("PowerShell command timed out."));
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || stdout.trim() || `PowerShell exited with code ${code}.`));
+        return;
+      }
+
+      resolve(stdout.trim());
+    });
+  });
+}
+
+async function environmentStatus() {
+  const status = {
+    node: {
+      ok: true,
+      version: process.version
+    },
+    pstools: {
+      ok: false,
+      version: null,
+      missingCommands: []
+    }
+  };
+
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    "$commands = @('Connect-Vms','Get-VmsRecordingServer','Export-VmsHardware','Import-VmsHardware')",
+    "$missing = @($commands | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })",
+    "$module = Get-Module MilestonePSTools -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1",
+    "[pscustomobject]@{ ok = ($missing.Count -eq 0); version = if ($module) { $module.Version.ToString() } else { $null }; missingCommands = $missing } | ConvertTo-Json -Compress"
+  ].join("; ");
+
+  try {
+    const output = await runPowerShellText(command, 30000);
+    status.pstools = JSON.parse(output.split(/\r?\n/).pop());
+  } catch (error) {
+    status.pstools.error = error.message;
+  }
+
+  return status;
+}
+
+async function installPSTools() {
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -Scope CurrentUser -Force | Out-Null }",
+    "Set-PSRepository -Name PSGallery -InstallationPolicy Trusted",
+    "Install-Module MilestonePSTools -Scope CurrentUser -Force -AllowClobber",
+    "Import-Module MilestonePSTools -Force",
+    "$commands = @('Connect-Vms','Get-VmsRecordingServer','Export-VmsHardware','Import-VmsHardware')",
+    "$missing = @($commands | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })",
+    "if ($missing.Count -gt 0) { throw ('Missing commands after install: ' + ($missing -join ', ')) }",
+    "$module = Get-Module MilestonePSTools -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1",
+    "[pscustomobject]@{ ok = $true; version = $module.Version.ToString(); message = 'MilestonePSTools installed successfully.' } | ConvertTo-Json -Compress"
+  ].join("; ");
+
+  const output = await runPowerShellText(command, 15 * 60 * 1000);
+  return JSON.parse(output.split(/\r?\n/).pop());
+}
+
 async function migrateHardwareWithPSTools(options = {}) {
   const result = await runPowerShellJson(pstoolsHardwareScript, {
     source: safeSessionForPowerShell(sessions.source),
@@ -1124,6 +1214,16 @@ async function handleApi(request, response, requestUrl) {
 
     if (request.method === "GET" && requestUrl.pathname === "/api/source/hardware-diagnostics") {
       sendJson(response, 200, await hardwareDiagnostics());
+      return;
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/api/environment") {
+      sendJson(response, 200, await environmentStatus());
+      return;
+    }
+
+    if (request.method === "POST" && requestUrl.pathname === "/api/setup/pstools") {
+      sendJson(response, 200, await installPSTools());
       return;
     }
 

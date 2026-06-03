@@ -57,6 +57,9 @@ const defaultUserPassword = document.querySelector("#defaultUserPassword");
 const forcePasswordChange = document.querySelector("#forcePasswordChange");
 const hardwareUsername = document.querySelector("#hardwareUsername");
 const hardwarePassword = document.querySelector("#hardwarePassword");
+const nodeStatus = document.querySelector("#nodeStatus");
+const pstoolsStatus = document.querySelector("#pstoolsStatus");
+const installPstoolsButton = document.querySelector("#installPstoolsButton");
 
 function addLog(message) {
   const item = document.createElement("li");
@@ -279,6 +282,33 @@ function updateMigrateButton() {
   migrateButton.disabled = selectedObjects().length === 0 || !state.targetConnected;
 }
 
+function setStatusPill(element, ok, text) {
+  element.textContent = text;
+  element.classList.remove("connected", "error");
+  element.classList.add(ok ? "connected" : "error");
+}
+
+async function refreshEnvironment() {
+  try {
+    const status = await requestJson("/api/environment");
+    setStatusPill(nodeStatus, status.node.ok, `Node.js ${status.node.version}`);
+
+    if (status.pstools.ok) {
+      setStatusPill(pstoolsStatus, true, `MilestonePSTools ${status.pstools.version}`);
+      installPstoolsButton.disabled = true;
+      installPstoolsButton.textContent = "MilestonePSTools ready";
+    } else {
+      setStatusPill(pstoolsStatus, false, "MilestonePSTools missing");
+      installPstoolsButton.disabled = false;
+      installPstoolsButton.textContent = "Install MilestonePSTools";
+    }
+  } catch (error) {
+    setStatusPill(nodeStatus, false, "Environment check failed");
+    setStatusPill(pstoolsStatus, false, "MilestonePSTools unknown");
+    addLog(`Environment check failed: ${error.message}`);
+  }
+}
+
 sourceForm.addEventListener("submit", (event) => {
   event.preventDefault();
   connectSystem("source", sourceForm);
@@ -287,6 +317,24 @@ sourceForm.addEventListener("submit", (event) => {
 targetForm.addEventListener("submit", (event) => {
   event.preventDefault();
   connectSystem("target", targetForm);
+});
+
+installPstoolsButton.addEventListener("click", async () => {
+  installPstoolsButton.disabled = true;
+  installPstoolsButton.textContent = "Installing...";
+  addLog("MilestonePSTools installation started.");
+
+  try {
+    const result = await requestJson("/api/setup/pstools", {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    addLog(result.message || "MilestonePSTools installed successfully.");
+  } catch (error) {
+    addLog(`MilestonePSTools installation failed: ${error.message}`);
+  } finally {
+    await refreshEnvironment();
+  }
 });
 
 objectList.addEventListener("change", updateMigrateButton);
@@ -340,3 +388,5 @@ migrateButton.addEventListener("click", async () => {
     updateMigrateButton();
   }
 });
+
+refreshEnvironment();

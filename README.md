@@ -64,11 +64,28 @@ Current mapping behavior:
 Requirements:
 
 - Node.js 18 or newer.
+- MilestonePSTools for hardware/camera migration.
+
+Recommended setup on the PC that will run the app:
+
+Open the web app and use **Install MilestonePSTools** in the **Environment** panel. This installs the PowerShell module for the current Windows user.
+
+Optional command-line setup:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\Setup-XProtectMigrationConsole.ps1
+```
+
+If Node.js is not installed and you want the setup script to try installing it with `winget`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\Setup-XProtectMigrationConsole.ps1 -InstallNodeWithWinget
+```
 
 Start the local server:
 
 ```powershell
-node server.js
+powershell -ExecutionPolicy Bypass -File scripts\Start-XProtectMigrationConsole.ps1
 ```
 
 Open:

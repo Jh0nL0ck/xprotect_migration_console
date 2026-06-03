@@ -19,6 +19,20 @@
         </div>
       </header>
 
+      <section class="environment-panel" aria-labelledby="environmentTitle">
+        <div>
+          <p class="eyebrow">Environment</p>
+          <h2 id="environmentTitle">Local migration engine</h2>
+        </div>
+        <div class="environment-status">
+          <span class="status-pill" id="nodeStatus">Node.js checking</span>
+          <span class="status-pill" id="pstoolsStatus">MilestonePSTools checking</span>
+        </div>
+        <button class="secondary-action" id="installPstoolsButton" type="button" disabled>
+          Install MilestonePSTools
+        </button>
+      </section>
+
       <section class="connection-grid" aria-label="Server connections">
         <form class="connection-panel" id="sourceForm">
           <div class="panel-header">

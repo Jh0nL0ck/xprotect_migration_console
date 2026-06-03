@@ -121,12 +121,29 @@ h2 {
 }
 
 .connection-panel,
+.environment-panel,
 .migration-workspace,
 .activity-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.environment-panel {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 18px 20px;
+}
+
+.environment-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .connection-panel {
@@ -353,6 +370,7 @@ button:disabled {
 
 @media (max-width: 860px) {
   .topbar,
+  .environment-panel,
   .connection-grid,
   .migration-footer {
     display: grid;
