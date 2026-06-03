@@ -68,7 +68,15 @@ Requirements:
 
 Recommended setup on the PC that will run the app:
 
-Open the web app and use **Install MilestonePSTools** in the **Environment** panel. This installs the PowerShell module for the current Windows user.
+Open the web app and check the **Environment** panel. If MilestonePSTools is missing, use **Help** and install it manually in PowerShell:
+
+```powershell
+Install-PackageProvider -Name NuGet -Scope CurrentUser -Force
+Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+Install-Module -Name MilestonePSTools -Scope CurrentUser
+```
+
+If PowerShell asks to install NuGet, answer **Yes**. If it asks whether to trust PSGallery, answer **Yes** or **Yes to All**. Then refresh the web app. The Environment panel should detect MilestonePSTools automatically.
 
 Optional command-line setup:
 

@@ -122,12 +122,26 @@ h2 {
 
 .connection-panel,
 .environment-panel,
+.help-panel,
 .migration-workspace,
 .activity-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.help-panel {
+  margin-bottom: 18px;
+  padding: 18px 20px;
+}
+
+.help-panel pre {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  background: #f7f9fb;
 }
 
 .environment-panel {
@@ -144,6 +158,27 @@ h2 {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.environment-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.manual-install {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.manual-install code {
+  display: inline-block;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 7px;
+  color: var(--ink);
+  background: #f7f9fb;
 }
 
 .connection-panel {

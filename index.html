@@ -24,14 +24,40 @@
           <p class="eyebrow">Environment</p>
           <h2 id="environmentTitle">Local migration engine</h2>
           <p class="panel-note">MilestonePSTools is only required for hardware and camera migration.</p>
+          <p class="manual-install">
+            Manual install:
+            <code>Install-Module -Name MilestonePSTools -Scope CurrentUser</code>
+          </p>
         </div>
         <div class="environment-status">
           <span class="status-pill" id="nodeStatus">Node.js checking</span>
           <span class="status-pill" id="pstoolsStatus">MilestonePSTools checking</span>
         </div>
-        <button class="secondary-action" id="installPstoolsButton" type="button" disabled>
-          Install MilestonePSTools
-        </button>
+        <div class="environment-actions">
+          <button class="secondary-action" id="refreshEnvironmentButton" type="button">
+            Refresh check
+          </button>
+          <button class="secondary-action" id="pstoolsHelpButton" type="button">
+            Help
+          </button>
+        </div>
+      </section>
+
+      <section class="help-panel" id="pstoolsHelpPanel" hidden>
+        <div class="panel-header">
+          <div>
+            <h2>Manual MilestonePSTools installation</h2>
+            <p>Run these commands in PowerShell on the PC running this app.</p>
+          </div>
+          <button class="secondary-action" id="closePstoolsHelpButton" type="button">Close</button>
+        </div>
+        <pre><code>Install-PackageProvider -Name NuGet -Scope CurrentUser -Force
+Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+Install-Module -Name MilestonePSTools -Scope CurrentUser -Force -AllowClobber</code></pre>
+        <p class="panel-note">
+          If PowerShell asks to install NuGet, answer Yes. If it asks whether to trust PSGallery, answer Yes or Yes to All.
+          After installation, run <code>Get-Command Export-VmsHardware</code> and <code>Get-Command Import-VmsHardware</code>.
+        </p>
       </section>
 
       <section class="connection-grid" aria-label="Server connections">

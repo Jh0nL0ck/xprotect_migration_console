@@ -59,9 +59,10 @@ const hardwareUsername = document.querySelector("#hardwareUsername");
 const hardwarePassword = document.querySelector("#hardwarePassword");
 const nodeStatus = document.querySelector("#nodeStatus");
 const pstoolsStatus = document.querySelector("#pstoolsStatus");
-const installPstoolsButton = document.querySelector("#installPstoolsButton");
-let setupPollingTimer = null;
-let lastSetupMessage = "";
+const refreshEnvironmentButton = document.querySelector("#refreshEnvironmentButton");
+const pstoolsHelpButton = document.querySelector("#pstoolsHelpButton");
+const pstoolsHelpPanel = document.querySelector("#pstoolsHelpPanel");
+const closePstoolsHelpButton = document.querySelector("#closePstoolsHelpButton");
 
 function addLog(message) {
   const item = document.createElement("li");
@@ -297,54 +298,13 @@ async function refreshEnvironment() {
 
     if (status.pstools.ok) {
       setStatusPill(pstoolsStatus, true, `MilestonePSTools ${status.pstools.version}`);
-      installPstoolsButton.disabled = true;
-      installPstoolsButton.textContent = "MilestonePSTools ready";
     } else {
       setStatusPill(pstoolsStatus, false, "MilestonePSTools missing");
-      installPstoolsButton.disabled = false;
-      installPstoolsButton.textContent = "Install MilestonePSTools";
-    }
-
-    const setupStatus = await requestJson("/api/setup/pstools/status");
-    if (setupStatus.running && !setupPollingTimer) {
-      setupPollingTimer = window.setInterval(pollPSToolsSetup, 2000);
-      await pollPSToolsSetup();
     }
   } catch (error) {
     setStatusPill(nodeStatus, false, "Environment check failed");
     setStatusPill(pstoolsStatus, false, "MilestonePSTools unknown");
     addLog(`Environment check failed: ${error.message}`);
-  }
-}
-
-async function pollPSToolsSetup() {
-  try {
-    const status = await requestJson("/api/setup/pstools/status");
-
-    if (status.message) {
-      installPstoolsButton.textContent = status.running ? status.message : "Install MilestonePSTools";
-      if (status.message !== lastSetupMessage) {
-        lastSetupMessage = status.message;
-        addLog(`MilestonePSTools setup: ${status.message}`);
-      }
-    }
-
-    if (status.status === "completed") {
-      window.clearInterval(setupPollingTimer);
-      setupPollingTimer = null;
-      addLog(status.message || "MilestonePSTools setup completed.");
-      await refreshEnvironment();
-      return;
-    }
-
-    if (status.status === "failed") {
-      window.clearInterval(setupPollingTimer);
-      setupPollingTimer = null;
-      addLog(`MilestonePSTools installation failed: ${status.error || status.message}`);
-      await refreshEnvironment();
-    }
-  } catch (error) {
-    addLog(`Could not read setup status: ${error.message}`);
   }
 }
 
@@ -358,27 +318,14 @@ targetForm.addEventListener("submit", (event) => {
   connectSystem("target", targetForm);
 });
 
-installPstoolsButton.addEventListener("click", async () => {
-  installPstoolsButton.disabled = true;
-  installPstoolsButton.textContent = "Starting setup...";
-  addLog("MilestonePSTools installation started.");
+refreshEnvironmentButton.addEventListener("click", refreshEnvironment);
 
-  try {
-    await requestJson("/api/setup/pstools", {
-      method: "POST",
-      body: JSON.stringify({})
-    });
+pstoolsHelpButton.addEventListener("click", () => {
+  pstoolsHelpPanel.hidden = false;
+});
 
-    if (setupPollingTimer) {
-      window.clearInterval(setupPollingTimer);
-    }
-
-    setupPollingTimer = window.setInterval(pollPSToolsSetup, 2000);
-    await pollPSToolsSetup();
-  } catch (error) {
-    addLog(`MilestonePSTools installation failed: ${error.message}`);
-    await refreshEnvironment();
-  }
+closePstoolsHelpButton.addEventListener("click", () => {
+  pstoolsHelpPanel.hidden = true;
 });
 
 objectList.addEventListener("change", updateMigrateButton);

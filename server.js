@@ -13,15 +13,6 @@ const sessions = {
   source: null,
   target: null
 };
-const setupState = {
-  running: false,
-  status: "idle",
-  message: "MilestonePSTools setup has not started.",
-  startedAt: null,
-  completedAt: null,
-  result: null,
-  error: null
-};
 
 const staticTypes = {
   ".html": "text/html; charset=utf-8",
@@ -797,74 +788,6 @@ function runPowerShellText(command, timeoutMs = 10 * 60 * 1000) {
   });
 }
 
-function runPowerShellLines(command, onLine, timeoutMs = 15 * 60 * 1000) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("powershell.exe", [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-      command
-    ], {
-      windowsHide: true
-    });
-    let stdout = "";
-    let stderr = "";
-    const timeout = setTimeout(() => {
-      child.kill();
-      reject(new Error("PowerShell command timed out."));
-    }, timeoutMs);
-
-    function emitLines(buffer, chunk) {
-      const text = buffer + chunk.toString();
-      const lines = text.split(/\r?\n/);
-      const rest = lines.pop();
-
-      for (const line of lines) {
-        if (line.trim()) {
-          onLine(line.trim());
-        }
-      }
-
-      return rest;
-    }
-
-    let stdoutRest = "";
-    let stderrRest = "";
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-      stdoutRest = emitLines(stdoutRest, chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-      stderrRest = emitLines(stderrRest, chunk);
-    });
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-
-      if (stdoutRest.trim()) {
-        onLine(stdoutRest.trim());
-      }
-
-      if (stderrRest.trim()) {
-        onLine(stderrRest.trim());
-      }
-
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || stdout.trim() || `PowerShell exited with code ${code}.`));
-        return;
-      }
-
-      resolve(stdout.trim());
-    });
-  });
-}
-
 async function environmentStatus() {
   const status = {
     node: {
@@ -894,67 +817,6 @@ async function environmentStatus() {
   }
 
   return status;
-}
-
-async function installPSTools() {
-  const command = [
-    "$ErrorActionPreference = 'Stop'",
-    "Write-Output 'Checking NuGet package provider...'",
-    "if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -Scope CurrentUser -Force | Out-Null }",
-    "Write-Output 'Configuring PowerShell Gallery...'",
-    "Set-PSRepository -Name PSGallery -InstallationPolicy Trusted",
-    "Write-Output 'Installing MilestonePSTools module...'",
-    "Install-Module -Name MilestonePSTools -Scope CurrentUser -Force -AllowClobber",
-    "Write-Output 'Importing MilestonePSTools module...'",
-    "Import-Module MilestonePSTools -Force",
-    "Write-Output 'Validating required MilestonePSTools commands...'",
-    "$commands = @('Connect-Vms','Get-VmsRecordingServer','Export-VmsHardware','Import-VmsHardware')",
-    "$missing = @($commands | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })",
-    "if ($missing.Count -gt 0) { throw ('Missing commands after install: ' + ($missing -join ', ')) }",
-    "$module = Get-Module MilestonePSTools -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1",
-    "[pscustomobject]@{ ok = $true; version = $module.Version.ToString(); message = 'MilestonePSTools installed successfully.' } | ConvertTo-Json -Compress"
-  ].join("; ");
-
-  const output = await runPowerShellLines(command, (line) => {
-    if (line.startsWith("{")) {
-      return;
-    }
-
-    setupState.message = line;
-  }, 15 * 60 * 1000);
-  return JSON.parse(output.split(/\r?\n/).pop());
-}
-
-function startPSToolsInstall() {
-  if (setupState.running) {
-    return setupState;
-  }
-
-  setupState.running = true;
-  setupState.status = "running";
-  setupState.message = "Starting MilestonePSTools setup...";
-  setupState.startedAt = new Date().toISOString();
-  setupState.completedAt = null;
-  setupState.result = null;
-  setupState.error = null;
-
-  installPSTools()
-    .then((result) => {
-      setupState.running = false;
-      setupState.status = "completed";
-      setupState.message = result.message || "MilestonePSTools setup completed.";
-      setupState.completedAt = new Date().toISOString();
-      setupState.result = result;
-    })
-    .catch((error) => {
-      setupState.running = false;
-      setupState.status = "failed";
-      setupState.message = error.message;
-      setupState.completedAt = new Date().toISOString();
-      setupState.error = error.message;
-    });
-
-  return setupState;
 }
 
 async function migrateHardwareWithPSTools(options = {}) {
@@ -1339,16 +1201,6 @@ async function handleApi(request, response, requestUrl) {
 
     if (request.method === "GET" && requestUrl.pathname === "/api/environment") {
       sendJson(response, 200, await environmentStatus());
-      return;
-    }
-
-    if (request.method === "POST" && requestUrl.pathname === "/api/setup/pstools") {
-      sendJson(response, 202, startPSToolsInstall());
-      return;
-    }
-
-    if (request.method === "GET" && requestUrl.pathname === "/api/setup/pstools/status") {
-      sendJson(response, 200, setupState);
       return;
     }
 
