@@ -904,7 +904,7 @@ async function installPSTools() {
     "Write-Output 'Configuring PowerShell Gallery...'",
     "Set-PSRepository -Name PSGallery -InstallationPolicy Trusted",
     "Write-Output 'Installing MilestonePSTools module...'",
-    "Install-Module MilestonePSTools -Scope CurrentUser -Force -AllowClobber",
+    "Install-Module -Name MilestonePSTools -Scope CurrentUser -Force -AllowClobber",
     "Write-Output 'Importing MilestonePSTools module...'",
     "Import-Module MilestonePSTools -Force",
     "Write-Output 'Validating required MilestonePSTools commands...'",
