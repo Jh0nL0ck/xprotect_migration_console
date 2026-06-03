@@ -2,9 +2,13 @@ const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
+const { spawn } = require("child_process");
 
 const port = Number(process.env.PORT || 4173);
 const root = __dirname;
+const migrationRunsRoot = path.join(root, ".migration-runs");
+const pstoolsHardwareScript = path.join(root, "scripts", "Invoke-XProtectHardwareMigration.ps1");
 const sessions = {
   source: null,
   target: null
@@ -102,6 +106,12 @@ function sendJson(response, statusCode, payload) {
     "Content-Type": "application/json; charset=utf-8"
   });
   response.end(JSON.stringify(payload));
+}
+
+function ensureDirectory(directoryPath) {
+  return fs.promises.mkdir(directoryPath, {
+    recursive: true
+  });
 }
 
 function normalizeServerUrl(serverUrl) {
@@ -662,6 +672,111 @@ async function hardwareDiagnostics() {
   };
 }
 
+function safeSessionForPowerShell(connection) {
+  return {
+    serverUrl: connection.serverUrl,
+    username: connection.username,
+    password: connection.password,
+    auth: connection.auth
+  };
+}
+
+async function runPowerShellJson(scriptPath, input) {
+  await ensureDirectory(migrationRunsRoot);
+
+  const runId = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
+  const runDirectory = path.join(migrationRunsRoot, runId);
+  const inputPath = path.join(runDirectory, "input.json");
+
+  await ensureDirectory(runDirectory);
+  await fs.promises.writeFile(inputPath, JSON.stringify(input), "utf8");
+
+  return new Promise((resolve, reject) => {
+    const child = spawn("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      scriptPath,
+      "-InputPath",
+      inputPath
+    ], {
+      windowsHide: true
+    });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error("PowerShell migration timed out after 30 minutes."));
+    }, 30 * 60 * 1000);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", async () => {
+      clearTimeout(timeout);
+
+      try {
+        await fs.promises.rm(runDirectory, {
+          recursive: true,
+          force: true
+        });
+      } catch {
+      }
+
+      const trimmed = stdout.trim();
+
+      if (!trimmed) {
+        reject(new Error(stderr.trim() || "PowerShell did not return a migration result."));
+        return;
+      }
+
+      try {
+        resolve(JSON.parse(trimmed.split(/\r?\n/).pop()));
+      } catch {
+        reject(new Error(`Could not parse PowerShell result. ${stderr || trimmed}`));
+      }
+    });
+  });
+}
+
+async function migrateHardwareWithPSTools(options = {}) {
+  const result = await runPowerShellJson(pstoolsHardwareScript, {
+    source: safeSessionForPowerShell(sessions.source),
+    target: safeSessionForPowerShell(sessions.target),
+    options: {
+      hardwareUsername: options.hardwareUsername || "",
+      hardwarePassword: options.hardwarePassword || ""
+    }
+  });
+
+  if (!result.ok) {
+    return {
+      id: "hardware",
+      status: "failed",
+      exported: result.exported || 0,
+      imported: result.imported || 0,
+      errors: result.errors || ["MilestonePSTools hardware migration failed."]
+    };
+  }
+
+  return {
+    id: "hardware",
+    status: result.failed > 0 ? "partial" : "completed",
+    exported: result.exported || 0,
+    imported: result.imported || 0,
+    errors: result.errors || [],
+    targetRecorder: result.targetRecorder
+  };
+}
+
 async function migrateObjectType(objectId, options = {}) {
   const resource = resourceMap.find((item) => item.id === objectId);
 
@@ -703,7 +818,7 @@ async function migrateObjectType(objectId, options = {}) {
   }
 
   if (objectId === "hardware") {
-    return migrateHardwareForCameras(options);
+    return migrateHardwareWithPSTools(options);
   }
 
   if (objectId === "users") {

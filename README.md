@@ -22,6 +22,7 @@ Implemented:
 - Local Node.js backend.
 - Internal API endpoints for source connection, target connection, inventory loading, and migration start.
 - Source inventory loading immediately after the source connection succeeds.
+- MilestonePSTools hardware migration wrapper for camera/hardware migration.
 - Optional sample data mode for demos.
 - Initial XProtect REST Config API adapter for inventory counts.
 
@@ -34,7 +35,12 @@ Not implemented yet:
 
 ## Migration Behavior
 
-The migration action now performs a real REST attempt:
+The migration action uses two engines:
+
+- **MilestonePSTools** for `Hardware`, because this is the supported path for cameras, microphones, metadata, inputs, outputs, driver data, and hardware credentials.
+- **REST Config API** for the remaining object types while they are being validated.
+
+For REST-backed object types, the app currently:
 
 1. Export selected object collections from the source server.
 2. Remove common read-only fields such as `id`, `path`, and link metadata.
@@ -47,7 +53,7 @@ Current mapping behavior:
 
 - Cameras are matched by name against existing target cameras. The app does not create cameras directly because cameras depend on recording server and hardware configuration.
 - Hardware is listed separately and is the correct way to create cameras/devices in the target system.
-- Hardware migration attempts to add source hardware to the first target recording server using the `AddHardware` task. If source credentials are not available, use the hardware fallback username/password fields.
+- Hardware migration calls `Export-VmsHardware` on the source and `Import-VmsHardware` on the target. All imported hardware is assigned to the first target recording server. If source credentials are not available, use the hardware fallback username/password fields.
 - Basic users can be created with a temporary password and the force-password-change option enabled. Existing passwords cannot be exported from XProtect.
 - Users are matched by name against existing target users before creating missing users.
 - Alarm payloads attempt to replace source camera IDs with matching target camera IDs before import.

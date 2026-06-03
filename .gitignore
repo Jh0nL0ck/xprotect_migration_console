@@ -2,3 +2,4 @@ node_modules/
 .env
 *.log
 migration-ui*.png
+.migration-runs/
