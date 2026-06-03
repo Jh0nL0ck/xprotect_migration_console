@@ -723,14 +723,6 @@ async function runPowerShellJson(scriptPath, input) {
     child.on("close", async () => {
       clearTimeout(timeout);
 
-      try {
-        await fs.promises.rm(runDirectory, {
-          recursive: true,
-          force: true
-        });
-      } catch {
-      }
-
       const trimmed = stdout.trim();
 
       if (!trimmed) {
@@ -739,7 +731,22 @@ async function runPowerShellJson(scriptPath, input) {
       }
 
       try {
-        resolve(JSON.parse(trimmed.split(/\r?\n/).pop()));
+        const result = JSON.parse(trimmed.split(/\r?\n/).pop());
+
+        if (result.ok && !result.failed) {
+          try {
+            await fs.promises.rm(runDirectory, {
+              recursive: true,
+              force: true
+            });
+          } catch {
+          }
+        }
+
+        resolve({
+          ...result,
+          runDirectory
+        });
       } catch {
         reject(new Error(`Could not parse PowerShell result. ${stderr || trimmed}`));
       }
@@ -835,7 +842,9 @@ async function migrateHardwareWithPSTools(options = {}) {
       status: "failed",
       exported: result.exported || 0,
       imported: result.imported || 0,
-      errors: result.errors || ["MilestonePSTools hardware migration failed."]
+      errors: result.errors || ["MilestonePSTools hardware migration failed."],
+      runDirectory: result.runDirectory,
+      exportPath: result.exportPath
     };
   }
 
@@ -845,7 +854,9 @@ async function migrateHardwareWithPSTools(options = {}) {
     exported: result.exported || 0,
     imported: result.imported || 0,
     errors: result.errors || [],
-    targetRecorder: result.targetRecorder
+    targetRecorder: result.targetRecorder,
+    runDirectory: result.failed > 0 ? result.runDirectory : null,
+    exportPath: result.failed > 0 ? result.exportPath : null
   };
 }
 

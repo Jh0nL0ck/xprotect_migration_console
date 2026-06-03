@@ -110,6 +110,7 @@ try {
         imported        = $successRows.Count
         failed          = $failedRows.Count
         targetRecorder  = $targetRecorder.Name
+        exportPath      = $exportPath
         errors          = @($failedRows | Select-Object -First 20 | ForEach-Object {
             $name = $_.Name
             if (-not $name) { $name = $_.HardwareName }
@@ -125,6 +126,7 @@ try {
         exported = 0
         imported = 0
         failed   = 0
+        exportPath = $exportPath
         errors   = @($_.Exception.Message)
     } | ConvertTo-Json -Depth 8 -Compress
 }

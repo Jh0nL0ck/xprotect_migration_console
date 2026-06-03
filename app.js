@@ -78,8 +78,9 @@ function addMigrationReport(results) {
       : "";
     const mapped = typeof result.mapped === "number" ? ` Mapped ${result.mapped}/${result.exported}.` : "";
     const target = result.targetRecorder ? ` Target recorder: ${result.targetRecorder}.` : "";
+    const artifacts = result.runDirectory ? ` Artifacts: ${result.runDirectory}.` : "";
 
-    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${mapped}${target}${errors}`;
+    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${mapped}${target}${artifacts}${errors}`;
     activityLog.prepend(item);
   });
 }
