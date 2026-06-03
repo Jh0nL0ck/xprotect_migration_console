@@ -315,7 +315,7 @@ button:disabled {
   background: #fff;
 }
 
-.object-card:has(input:checked) {
+.object-card:has(.object-type-checkbox:checked) {
   border-color: rgba(23, 107, 135, 0.45);
   background: #f0f8fb;
 }
@@ -343,20 +343,52 @@ button:disabled {
   font-size: 13px;
 }
 
-.object-preview {
+.object-items {
   display: grid;
-  gap: 4px;
-  margin: 10px 0 0 30px;
+  gap: 8px;
+  max-height: 220px;
+  margin: 12px 0 0 30px;
   padding: 0;
   color: #34414b;
   font-size: 12px;
-  list-style: none;
+  overflow: auto;
 }
 
-.object-preview li {
+.object-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  border: 1px solid rgba(173, 186, 196, 0.65);
+  border-radius: 6px;
+  padding: 7px 8px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.object-item input {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin-top: 1px;
+  accent-color: var(--accent);
+}
+
+.object-item-name,
+.object-item-meta {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.object-item-name {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.object-item-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .migration-options {
@@ -368,59 +400,6 @@ button:disabled {
 .migration-options h3 {
   margin: 0 0 12px;
   font-size: 16px;
-}
-
-.hardware-selection {
-  margin-top: 18px;
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
-}
-
-.hardware-selection h3 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.hardware-selection .panel-header p {
-  margin: 5px 0 0;
-}
-
-.hardware-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.hardware-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px;
-  background: #fff;
-}
-
-.hardware-item input {
-  width: 18px;
-  height: 18px;
-  min-height: 18px;
-  margin-top: 2px;
-  accent-color: var(--accent);
-}
-
-.hardware-name {
-  display: block;
-  color: var(--ink);
-  font-weight: 750;
-}
-
-.hardware-meta {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .option-checkbox {
@@ -471,7 +450,6 @@ button:disabled {
   }
 
   .connection-grid,
-  .hardware-list,
   .object-list {
     grid-template-columns: 1fr;
   }

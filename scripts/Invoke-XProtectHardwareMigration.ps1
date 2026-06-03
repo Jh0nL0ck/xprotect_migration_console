@@ -120,15 +120,20 @@ try {
             imported       = 0
             failed         = 0
             selected       = $selectedCount
-            targetRecorder = $null
-            exportPath     = $null
-            errors         = @()
+        targetRecorder = $null
+        exportPath     = $null
+        csvExportPath  = $null
+        errors         = @()
         } | ConvertTo-Json -Depth 8 -Compress
         exit 0
     }
 
     try {
         $sourceHardware | Export-VmsHardware -Path $exportPath -DeviceType $deviceTypes -EnableFilter All
+        try {
+            $sourceHardware | Export-VmsHardware -Path $csvExportPath -DeviceType $deviceTypes -EnableFilter All
+        } catch {
+        }
     } catch {
         if ($_.Exception.Message -match "ImportExcel") {
             $exportPath = $csvExportPath
@@ -138,6 +143,7 @@ try {
         }
     }
     Disconnect-XProtect
+    $createdCsvExportPath = if (Test-Path -LiteralPath $csvExportPath) { $csvExportPath } else { $null }
 
     Connect-XProtect -Connection $config.target -Name "xma-target"
     $targetRecorder = Get-VmsRecordingServer | Select-Object -First 1
@@ -168,14 +174,6 @@ try {
 
     Disconnect-XProtect
 
-    if (Test-Path -LiteralPath $exportPath) {
-        Remove-Item -LiteralPath $exportPath -Force
-    }
-
-    if ((Test-Path -LiteralPath $csvExportPath) -and ($csvExportPath -ne $exportPath)) {
-        Remove-Item -LiteralPath $csvExportPath -Force
-    }
-
     [pscustomobject]@{
         ok              = $true
         exported        = $exportedCount
@@ -184,6 +182,7 @@ try {
         selected        = $selectedCount
         targetRecorder  = $targetRecorder.Name
         exportPath      = $exportPath
+        csvExportPath   = $createdCsvExportPath
         errors          = @($failedRows | Select-Object -First 20 | ForEach-Object {
             $name = $_.Name
             if (-not $name) { $name = $_.HardwareName }
@@ -200,6 +199,7 @@ try {
         imported = 0
         failed   = 0
         exportPath = $exportPath
+        csvExportPath = $csvExportPath
         errors   = @($_.Exception.Message)
     } | ConvertTo-Json -Depth 8 -Compress
 }

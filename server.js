@@ -444,6 +444,29 @@ function hardwarePreview(item) {
   return parts.join(" - ");
 }
 
+function inventoryItem(resourceName, item) {
+  const id = itemId(item);
+  const name = itemDisplayName(item) || "Unnamed item";
+  const address = resourceName === "hardware" ? hardwareAddress(item) : "";
+  const driver = resourceName === "hardware" ? hardwareDriverName(item) : "";
+  const meta = resourceName === "hardware"
+    ? [address, driver].filter(Boolean).join(" - ")
+    : id || "";
+
+  return {
+    id,
+    name,
+    address,
+    driver,
+    meta,
+    identity: {
+      id: id || "",
+      name,
+      address: address || ""
+    }
+  };
+}
+
 function normalizeName(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -510,6 +533,34 @@ function buildNameMap(sourceItems, targetItems) {
     mapped,
     missing
   };
+}
+
+function matchesSelectedIdentity(item, selectedItems = []) {
+  if (!Array.isArray(selectedItems) || selectedItems.length === 0) {
+    return false;
+  }
+
+  const id = itemId(item);
+  const name = itemDisplayName(item);
+  const address = hardwareAddress(item);
+
+  return selectedItems.some((selected) => (
+    (selected.id && id && selected.id === id)
+    || (selected.name && name && selected.name === name)
+    || (selected.address && address && selected.address === address)
+  ));
+}
+
+function filterSelectedItems(items, objectId, options = {}) {
+  const selectedItems = options.selectedItems && Array.isArray(options.selectedItems[objectId])
+    ? options.selectedItems[objectId]
+    : null;
+
+  if (!selectedItems) {
+    return items;
+  }
+
+  return items.filter((item) => matchesSelectedIdentity(item, selectedItems));
 }
 
 function replaceMappedIds(value, idMap) {
@@ -582,10 +633,7 @@ async function summarizeResource(connection, resourceNames) {
     try {
       const payload = await xprotectFetch(connection, `${resourceName}?page=0&size=100&disabled`);
       const collection = extractCollection(payload, resourceName);
-      const items = collection
-        .map((item) => resourceName === "hardware" ? hardwarePreview(item) : itemDisplayName(item))
-        .filter(Boolean)
-        .slice(0, 6);
+      const items = collection.map((item) => inventoryItem(resourceName, item));
 
       return {
         count: collection.length || extractCount(payload, resourceName),
@@ -733,16 +781,6 @@ async function runPowerShellJson(scriptPath, input) {
       try {
         const result = JSON.parse(trimmed.split(/\r?\n/).pop());
 
-        if (result.ok && !result.failed) {
-          try {
-            await fs.promises.rm(runDirectory, {
-              recursive: true,
-              force: true
-            });
-          } catch {
-          }
-        }
-
         resolve({
           ...result,
           runDirectory
@@ -827,14 +865,18 @@ async function environmentStatus() {
 }
 
 async function migrateHardwareWithPSTools(options = {}) {
+  const selectedHardware = options.selectedItems && Array.isArray(options.selectedItems.hardware)
+    ? options.selectedItems.hardware
+    : [];
+
   const result = await runPowerShellJson(pstoolsHardwareScript, {
     source: safeSessionForPowerShell(sessions.source),
     target: safeSessionForPowerShell(sessions.target),
     options: {
       hardwareUsername: options.hardwareUsername || "",
       hardwarePassword: options.hardwarePassword || "",
-      hardwareSelectionEnabled: Boolean(options.hardwareSelectionEnabled),
-      selectedHardware: Array.isArray(options.selectedHardware) ? options.selectedHardware : []
+      hardwareSelectionEnabled: Boolean(options.selectedItems),
+      selectedHardware
     }
   });
 
@@ -846,7 +888,8 @@ async function migrateHardwareWithPSTools(options = {}) {
       imported: result.imported || 0,
       errors: result.errors || ["MilestonePSTools hardware migration failed."],
       runDirectory: result.runDirectory,
-      exportPath: result.exportPath
+      exportPath: result.exportPath,
+      csvExportPath: result.csvExportPath
     };
   }
 
@@ -857,8 +900,9 @@ async function migrateHardwareWithPSTools(options = {}) {
     imported: result.imported || 0,
     errors: result.errors || [],
     targetRecorder: result.targetRecorder,
-    runDirectory: result.failed > 0 ? result.runDirectory : null,
-    exportPath: result.failed > 0 ? result.exportPath : null
+    runDirectory: result.runDirectory,
+    exportPath: result.exportPath,
+    csvExportPath: result.csvExportPath
   };
 }
 
@@ -888,12 +932,13 @@ async function migrateObjectType(objectId, options = {}) {
   if (objectId === "cameras") {
     const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
     const targetData = await fetchResourceCollection(sessions.target, resource.resources);
-    const mapping = buildNameMap(sourceData.collection, targetData.collection);
+    const sourceCollection = filterSelectedItems(sourceData.collection, objectId, options);
+    const mapping = buildNameMap(sourceCollection, targetData.collection);
 
     return {
       id: objectId,
       status: mapping.missing.length ? "requires_mapping" : "mapped",
-      exported: sourceData.collection.length,
+      exported: sourceCollection.length,
       imported: 0,
       mapped: mapping.mapped.length,
       errors: mapping.missing.length
@@ -911,17 +956,18 @@ async function migrateObjectType(objectId, options = {}) {
   }
 
   const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
+  const sourceCollection = filterSelectedItems(sourceData.collection, objectId, options);
   const targetResource = sourceData.resourceName;
   const result = {
     id: objectId,
     resource: targetResource,
     status: "completed",
-    exported: sourceData.collection.length,
+    exported: sourceCollection.length,
     imported: 0,
     errors: []
   };
 
-  for (const item of sourceData.collection) {
+  for (const item of sourceCollection) {
     try {
       const payload = objectId === "alarms"
         ? await applyCameraMapping(sanitizeForCreate(item))
@@ -945,16 +991,17 @@ async function migrateObjectType(objectId, options = {}) {
 
 async function migrateBasicUsers(options = {}) {
   const sourceData = await fetchResourceCollection(sessions.source, ["basicUsers", "users"]);
+  const sourceCollection = filterSelectedItems(sourceData.collection, "users", options);
   const targetData = await fetchResourceCollection(sessions.target, ["basicUsers", "users"]).catch(() => ({
     collection: []
   }));
-  const mapping = buildNameMap(sourceData.collection, targetData.collection);
+  const mapping = buildNameMap(sourceCollection, targetData.collection);
   const existing = new Set(mapping.mapped.map((item) => normalizeName(item.name)));
   const result = {
     id: "users",
     resource: sourceData.resourceName,
     status: "completed",
-    exported: sourceData.collection.length,
+    exported: sourceCollection.length,
     imported: 0,
     mapped: mapping.mapped.length,
     errors: []
@@ -970,7 +1017,7 @@ async function migrateBasicUsers(options = {}) {
     };
   }
 
-  for (const item of sourceData.collection) {
+  for (const item of sourceCollection) {
     const name = itemDisplayName(item);
 
     if (existing.has(normalizeName(name))) {

@@ -57,9 +57,6 @@ const defaultUserPassword = document.querySelector("#defaultUserPassword");
 const forcePasswordChange = document.querySelector("#forcePasswordChange");
 const hardwareUsername = document.querySelector("#hardwareUsername");
 const hardwarePassword = document.querySelector("#hardwarePassword");
-const hardwareSelection = document.querySelector("#hardwareSelection");
-const hardwareList = document.querySelector("#hardwareList");
-const selectAllHardwareButton = document.querySelector("#selectAllHardware");
 const nodeStatus = document.querySelector("#nodeStatus");
 const pstoolsStatus = document.querySelector("#pstoolsStatus");
 const refreshEnvironmentButton = document.querySelector("#refreshEnvironmentButton");
@@ -82,8 +79,9 @@ function addMigrationReport(results) {
     const mapped = typeof result.mapped === "number" ? ` Mapped ${result.mapped}/${result.exported}.` : "";
     const target = result.targetRecorder ? ` Target recorder: ${result.targetRecorder}.` : "";
     const artifacts = result.runDirectory ? ` Artifacts: ${result.runDirectory}.` : "";
+    const csv = result.csvExportPath ? ` CSV: ${result.csvExportPath}.` : "";
 
-    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${mapped}${target}${artifacts}${errors}`;
+    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${mapped}${target}${artifacts}${csv}${errors}`;
     activityLog.prepend(item);
   });
 }
@@ -210,12 +208,10 @@ async function loadSourceInventory() {
     const result = await requestJson("/api/source/inventory");
     state.inventory = result.objects;
     renderMigrationObjects();
-    await loadHardwareSelection();
     addLog("Configuration objects loaded from the source system.");
   } catch (error) {
     state.inventory = [];
     objectList.replaceChildren();
-    clearHardwareSelection();
     emptyState.textContent = `Could not load source inventory: ${error.message}`;
     emptyState.hidden = false;
     objectList.hidden = true;
@@ -237,7 +233,6 @@ function updateWorkspaceState() {
     emptyState.textContent =
       "Connect the source system to load available cameras, views, users, rules, and alarms.";
     objectList.replaceChildren();
-    clearHardwareSelection();
     state.inventory = [];
   } else if (!state.targetConnected && hasSourceInventory) {
     emptyState.hidden = true;
@@ -255,18 +250,35 @@ function renderMigrationObjects() {
     const definition = objectDefinitions.find((item) => item.id === object.id) || object;
     const card = document.createElement("article");
     card.className = "object-card";
+    const items = Array.isArray(object.items) ? object.items : [];
+    const itemList = items.length
+      ? `
+        <div class="object-items" data-object-items="${object.id}">
+          ${items.map((item, index) => `
+            <label class="object-item">
+              <input class="object-item-checkbox" type="checkbox" data-object-id="${object.id}" value="${escapeHtml(JSON.stringify(item.identity || {
+                id: item.id || "",
+                name: item.name || "",
+                address: item.address || ""
+              }))}" checked disabled>
+              <span>
+                <span class="object-item-name">${escapeHtml(item.name || item.label || `Item ${index + 1}`)}</span>
+                <span class="object-item-meta">${escapeHtml(item.meta || item.address || item.driver || "")}</span>
+              </span>
+            </label>
+          `).join("")}
+        </div>
+      `
+      : "";
+
     card.innerHTML = `
-      <label for="${object.id}">
-        <input id="${object.id}" type="checkbox" value="${object.id}" ${object.count === 0 ? "disabled" : ""}>
+      <label class="object-heading" for="${object.id}">
+        <input class="object-type-checkbox" id="${object.id}" type="checkbox" value="${object.id}" ${object.count === 0 ? "disabled" : ""}>
         <span>${definition.label}</span>
       </label>
       <p class="object-count">${object.count}</p>
       <p class="object-description">${object.error ? `Unavailable: ${object.error}` : definition.description}</p>
-      ${object.items && object.items.length ? `
-        <ul class="object-preview">
-          ${object.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-        </ul>
-      ` : ""}
+      ${itemList}
     `;
     fragment.append(card);
   });
@@ -277,60 +289,8 @@ function renderMigrationObjects() {
   selectAllButton.disabled = false;
 }
 
-function clearHardwareSelection() {
-  hardwareList.replaceChildren();
-  hardwareSelection.hidden = true;
-  selectAllHardwareButton.textContent = "Select all hardware";
-}
-
-function hardwareIdentity(hardware) {
-  return {
-    id: hardware.id || "",
-    name: hardware.name || "",
-    address: hardware.address || ""
-  };
-}
-
-async function loadHardwareSelection() {
-  try {
-    const diagnostics = await requestJson("/api/source/hardware-diagnostics");
-    const hardware = Array.isArray(diagnostics.hardware) ? diagnostics.hardware : [];
-    const fragment = document.createDocumentFragment();
-
-    hardwareList.replaceChildren();
-
-    hardware.forEach((item, index) => {
-      const label = document.createElement("label");
-      const input = document.createElement("input");
-      const content = document.createElement("span");
-      const name = document.createElement("span");
-      const meta = document.createElement("span");
-
-      label.className = "hardware-item";
-      input.type = "checkbox";
-      input.checked = true;
-      input.value = JSON.stringify(hardwareIdentity(item));
-      name.className = "hardware-name";
-      name.textContent = item.name || `Hardware ${index + 1}`;
-      meta.className = "hardware-meta";
-      meta.textContent = [item.address, item.driver].filter(Boolean).join(" - ") || "No address or driver detected";
-
-      content.append(name, meta);
-      label.append(input, content);
-      fragment.append(label);
-    });
-
-    hardwareList.append(fragment);
-    hardwareSelection.hidden = hardware.length === 0;
-    selectAllHardwareButton.textContent = "Clear hardware selection";
-  } catch (error) {
-    clearHardwareSelection();
-    addLog(`Hardware list could not be loaded: ${error.message}`);
-  }
-}
-
 function selectedObjects() {
-  return [...objectList.querySelectorAll("input:checked")].map((input) => {
+  return [...objectList.querySelectorAll(".object-type-checkbox:checked")].map((input) => {
     const definition = objectDefinitions.find((item) => item.id === input.value);
 
     return {
@@ -340,8 +300,24 @@ function selectedObjects() {
   });
 }
 
-function selectedHardware() {
-  return [...hardwareList.querySelectorAll("input:checked")].map((input) => JSON.parse(input.value));
+function selectedItemsByObject() {
+  const selected = {};
+
+  objectList.querySelectorAll("[data-object-items]").forEach((list) => {
+    selected[list.dataset.objectItems] = [];
+  });
+
+  objectList.querySelectorAll(".object-item-checkbox:checked").forEach((input) => {
+    const objectId = input.dataset.objectId;
+
+    if (!selected[objectId]) {
+      selected[objectId] = [];
+    }
+
+    selected[objectId].push(JSON.parse(input.value));
+  });
+
+  return selected;
 }
 
 function updateMigrateButton() {
@@ -391,38 +367,44 @@ closePstoolsHelpButton.addEventListener("click", () => {
   pstoolsHelpPanel.hidden = true;
 });
 
-objectList.addEventListener("change", updateMigrateButton);
+objectList.addEventListener("change", (event) => {
+  const input = event.target;
 
-hardwareList.addEventListener("change", () => {
-  const checkboxes = [...hardwareList.querySelectorAll("input")];
-  const checkedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+  if (input.classList.contains("object-type-checkbox")) {
+    const card = input.closest(".object-card");
+    card.querySelectorAll(".object-item-checkbox").forEach((itemCheckbox) => {
+      itemCheckbox.checked = input.checked;
+      itemCheckbox.disabled = !input.checked;
+    });
+  }
 
-  selectAllHardwareButton.textContent = checkedCount === checkboxes.length
-    ? "Clear hardware selection"
-    : "Select all hardware";
+  if (input.classList.contains("object-item-checkbox")) {
+    const card = input.closest(".object-card");
+    const typeCheckbox = card.querySelector(".object-type-checkbox");
+    const itemCheckboxes = [...card.querySelectorAll(".object-item-checkbox")];
+
+    typeCheckbox.checked = itemCheckboxes.some((itemCheckbox) => itemCheckbox.checked);
+  }
+
+  updateMigrateButton();
 });
 
 selectAllButton.addEventListener("click", () => {
-  const checkboxes = [...objectList.querySelectorAll("input:not(:disabled)")];
+  const checkboxes = [...objectList.querySelectorAll(".object-type-checkbox:not(:disabled)")];
   const shouldSelect = checkboxes.some((checkbox) => !checkbox.checked);
 
   checkboxes.forEach((checkbox) => {
     checkbox.checked = shouldSelect;
+    const card = checkbox.closest(".object-card");
+
+    card.querySelectorAll(".object-item-checkbox").forEach((itemCheckbox) => {
+      itemCheckbox.checked = shouldSelect;
+      itemCheckbox.disabled = !shouldSelect;
+    });
   });
 
   selectAllButton.textContent = shouldSelect ? "Clear selection" : "Select all";
   updateMigrateButton();
-});
-
-selectAllHardwareButton.addEventListener("click", () => {
-  const checkboxes = [...hardwareList.querySelectorAll("input")];
-  const shouldSelect = checkboxes.some((checkbox) => !checkbox.checked);
-
-  checkboxes.forEach((checkbox) => {
-    checkbox.checked = shouldSelect;
-  });
-
-  selectAllHardwareButton.textContent = shouldSelect ? "Clear hardware selection" : "Select all hardware";
 });
 
 migrateButton.addEventListener("click", async () => {
@@ -447,8 +429,7 @@ migrateButton.addEventListener("click", async () => {
           forcePasswordChange: forcePasswordChange.checked,
           hardwareUsername: hardwareUsername.value,
           hardwarePassword: hardwarePassword.value,
-          hardwareSelectionEnabled: !hardwareSelection.hidden,
-          selectedHardware: selectedHardware()
+          selectedItems: selectedItemsByObject()
         }
       })
     });
