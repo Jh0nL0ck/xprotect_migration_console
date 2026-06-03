@@ -832,7 +832,9 @@ async function migrateHardwareWithPSTools(options = {}) {
     target: safeSessionForPowerShell(sessions.target),
     options: {
       hardwareUsername: options.hardwareUsername || "",
-      hardwarePassword: options.hardwarePassword || ""
+      hardwarePassword: options.hardwarePassword || "",
+      hardwareSelectionEnabled: Boolean(options.hardwareSelectionEnabled),
+      selectedHardware: Array.isArray(options.selectedHardware) ? options.selectedHardware : []
     }
   });
 

@@ -43,6 +43,53 @@ function Disconnect-XProtect {
     }
 }
 
+function Get-ObjectValue {
+    param(
+        [Parameter(Mandatory = $true)] $Object,
+        [Parameter(Mandatory = $true)] [string[]] $Names
+    )
+
+    foreach ($name in $Names) {
+        if ($Object.PSObject.Properties[$name] -and $Object.$name) {
+            return [string] $Object.$name
+        }
+    }
+
+    return ""
+}
+
+function Test-HardwareSelected {
+    param(
+        [Parameter(Mandatory = $true)] $Hardware,
+        [Parameter(Mandatory = $true)] $SelectedHardware
+    )
+
+    $selectedItems = @($SelectedHardware)
+    if ($selectedItems.Count -eq 0) {
+        return $false
+    }
+
+    $id = Get-ObjectValue -Object $Hardware -Names @("Id", "ID", "Path", "ReferenceId")
+    $name = Get-ObjectValue -Object $Hardware -Names @("Name", "DisplayName")
+    $address = Get-ObjectValue -Object $Hardware -Names @("HardwareAddress", "Address", "HostName", "Hostname", "Uri", "IpAddress")
+
+    foreach ($selected in $selectedItems) {
+        if ($selected.id -and $id -and ($selected.id -eq $id)) {
+            return $true
+        }
+
+        if ($selected.name -and $name -and ($selected.name -eq $name)) {
+            return $true
+        }
+
+        if ($selected.address -and $address -and ($selected.address -eq $address)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 try {
     $config = Get-Content -Raw -LiteralPath $InputPath | ConvertFrom-Json
     Import-Module MilestonePSTools -ErrorAction Stop
@@ -53,7 +100,33 @@ try {
     $deviceTypes = @("Camera", "Microphone", "Speaker", "Metadata", "Input", "Output")
 
     Connect-XProtect -Connection $config.source -Name "xma-source"
-    $sourceHardware = Get-VmsRecordingServer | Get-VmsHardware
+    $selectedHardware = @($config.options.selectedHardware)
+    $hardwareSelectionEnabled = [bool] $config.options.hardwareSelectionEnabled
+    $sourceHardware = @(Get-VmsRecordingServer | Get-VmsHardware)
+    if ($hardwareSelectionEnabled) {
+        $sourceHardware = @($sourceHardware | Where-Object {
+            Test-HardwareSelected -Hardware $_ -SelectedHardware $selectedHardware
+        })
+    }
+    $exportedCount = @($sourceHardware).Count
+    $selectedCount = @($selectedHardware).Count
+
+    if ($exportedCount -eq 0) {
+        Disconnect-XProtect
+
+        [pscustomobject]@{
+            ok             = $true
+            exported       = 0
+            imported       = 0
+            failed         = 0
+            selected       = $selectedCount
+            targetRecorder = $null
+            exportPath     = $null
+            errors         = @()
+        } | ConvertTo-Json -Depth 8 -Compress
+        exit 0
+    }
+
     try {
         $sourceHardware | Export-VmsHardware -Path $exportPath -DeviceType $deviceTypes -EnableFilter All
     } catch {
@@ -64,7 +137,6 @@ try {
             throw
         }
     }
-    $exportedCount = @($sourceHardware).Count
     Disconnect-XProtect
 
     Connect-XProtect -Connection $config.target -Name "xma-target"
@@ -109,6 +181,7 @@ try {
         exported        = $exportedCount
         imported        = $successRows.Count
         failed          = $failedRows.Count
+        selected        = $selectedCount
         targetRecorder  = $targetRecorder.Name
         exportPath      = $exportPath
         errors          = @($failedRows | Select-Object -First 20 | ForEach-Object {

@@ -219,6 +219,17 @@ Install-Module -Name MilestonePSTools -Scope CurrentUser -Force -AllowClobber</c
           </div>
         </div>
 
+        <div class="hardware-selection" id="hardwareSelection" hidden>
+          <div class="panel-header">
+            <div>
+              <h3>Hardware selection</h3>
+              <p>Select the source hardware devices to migrate to the target recording server.</p>
+            </div>
+            <button class="secondary-action" id="selectAllHardware" type="button">Select all hardware</button>
+          </div>
+          <div class="hardware-list" id="hardwareList"></div>
+        </div>
+
         <footer class="migration-footer">
           <p class="migration-note">
             Recordings and stored events will not be moved to the new system.

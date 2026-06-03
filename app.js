@@ -57,6 +57,9 @@ const defaultUserPassword = document.querySelector("#defaultUserPassword");
 const forcePasswordChange = document.querySelector("#forcePasswordChange");
 const hardwareUsername = document.querySelector("#hardwareUsername");
 const hardwarePassword = document.querySelector("#hardwarePassword");
+const hardwareSelection = document.querySelector("#hardwareSelection");
+const hardwareList = document.querySelector("#hardwareList");
+const selectAllHardwareButton = document.querySelector("#selectAllHardware");
 const nodeStatus = document.querySelector("#nodeStatus");
 const pstoolsStatus = document.querySelector("#pstoolsStatus");
 const refreshEnvironmentButton = document.querySelector("#refreshEnvironmentButton");
@@ -207,10 +210,12 @@ async function loadSourceInventory() {
     const result = await requestJson("/api/source/inventory");
     state.inventory = result.objects;
     renderMigrationObjects();
+    await loadHardwareSelection();
     addLog("Configuration objects loaded from the source system.");
   } catch (error) {
     state.inventory = [];
     objectList.replaceChildren();
+    clearHardwareSelection();
     emptyState.textContent = `Could not load source inventory: ${error.message}`;
     emptyState.hidden = false;
     objectList.hidden = true;
@@ -232,6 +237,7 @@ function updateWorkspaceState() {
     emptyState.textContent =
       "Connect the source system to load available cameras, views, users, rules, and alarms.";
     objectList.replaceChildren();
+    clearHardwareSelection();
     state.inventory = [];
   } else if (!state.targetConnected && hasSourceInventory) {
     emptyState.hidden = true;
@@ -271,6 +277,58 @@ function renderMigrationObjects() {
   selectAllButton.disabled = false;
 }
 
+function clearHardwareSelection() {
+  hardwareList.replaceChildren();
+  hardwareSelection.hidden = true;
+  selectAllHardwareButton.textContent = "Select all hardware";
+}
+
+function hardwareIdentity(hardware) {
+  return {
+    id: hardware.id || "",
+    name: hardware.name || "",
+    address: hardware.address || ""
+  };
+}
+
+async function loadHardwareSelection() {
+  try {
+    const diagnostics = await requestJson("/api/source/hardware-diagnostics");
+    const hardware = Array.isArray(diagnostics.hardware) ? diagnostics.hardware : [];
+    const fragment = document.createDocumentFragment();
+
+    hardwareList.replaceChildren();
+
+    hardware.forEach((item, index) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      const content = document.createElement("span");
+      const name = document.createElement("span");
+      const meta = document.createElement("span");
+
+      label.className = "hardware-item";
+      input.type = "checkbox";
+      input.checked = true;
+      input.value = JSON.stringify(hardwareIdentity(item));
+      name.className = "hardware-name";
+      name.textContent = item.name || `Hardware ${index + 1}`;
+      meta.className = "hardware-meta";
+      meta.textContent = [item.address, item.driver].filter(Boolean).join(" - ") || "No address or driver detected";
+
+      content.append(name, meta);
+      label.append(input, content);
+      fragment.append(label);
+    });
+
+    hardwareList.append(fragment);
+    hardwareSelection.hidden = hardware.length === 0;
+    selectAllHardwareButton.textContent = "Clear hardware selection";
+  } catch (error) {
+    clearHardwareSelection();
+    addLog(`Hardware list could not be loaded: ${error.message}`);
+  }
+}
+
 function selectedObjects() {
   return [...objectList.querySelectorAll("input:checked")].map((input) => {
     const definition = objectDefinitions.find((item) => item.id === input.value);
@@ -280,6 +338,10 @@ function selectedObjects() {
       label: definition.label
     };
   });
+}
+
+function selectedHardware() {
+  return [...hardwareList.querySelectorAll("input:checked")].map((input) => JSON.parse(input.value));
 }
 
 function updateMigrateButton() {
@@ -331,6 +393,15 @@ closePstoolsHelpButton.addEventListener("click", () => {
 
 objectList.addEventListener("change", updateMigrateButton);
 
+hardwareList.addEventListener("change", () => {
+  const checkboxes = [...hardwareList.querySelectorAll("input")];
+  const checkedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+
+  selectAllHardwareButton.textContent = checkedCount === checkboxes.length
+    ? "Clear hardware selection"
+    : "Select all hardware";
+});
+
 selectAllButton.addEventListener("click", () => {
   const checkboxes = [...objectList.querySelectorAll("input:not(:disabled)")];
   const shouldSelect = checkboxes.some((checkbox) => !checkbox.checked);
@@ -341,6 +412,17 @@ selectAllButton.addEventListener("click", () => {
 
   selectAllButton.textContent = shouldSelect ? "Clear selection" : "Select all";
   updateMigrateButton();
+});
+
+selectAllHardwareButton.addEventListener("click", () => {
+  const checkboxes = [...hardwareList.querySelectorAll("input")];
+  const shouldSelect = checkboxes.some((checkbox) => !checkbox.checked);
+
+  checkboxes.forEach((checkbox) => {
+    checkbox.checked = shouldSelect;
+  });
+
+  selectAllHardwareButton.textContent = shouldSelect ? "Clear hardware selection" : "Select all hardware";
 });
 
 migrateButton.addEventListener("click", async () => {
@@ -364,7 +446,9 @@ migrateButton.addEventListener("click", async () => {
           defaultUserPassword: defaultUserPassword.value,
           forcePasswordChange: forcePasswordChange.checked,
           hardwareUsername: hardwareUsername.value,
-          hardwarePassword: hardwarePassword.value
+          hardwarePassword: hardwarePassword.value,
+          hardwareSelectionEnabled: !hardwareSelection.hidden,
+          selectedHardware: selectedHardware()
         }
       })
     });
