@@ -868,6 +868,9 @@ async function migrateHardwareWithPSTools(options = {}) {
   const selectedHardware = options.selectedItems && Array.isArray(options.selectedItems.hardware)
     ? options.selectedItems.hardware
     : [];
+  const selectedCameras = options.selectedItems && Array.isArray(options.selectedItems.cameras)
+    ? options.selectedItems.cameras
+    : [];
 
   const result = await runPowerShellJson(pstoolsHardwareScript, {
     source: safeSessionForPowerShell(sessions.source),
@@ -876,7 +879,8 @@ async function migrateHardwareWithPSTools(options = {}) {
       hardwareUsername: options.hardwareUsername || "",
       hardwarePassword: options.hardwarePassword || "",
       hardwareSelectionEnabled: Boolean(options.selectedItems),
-      selectedHardware
+      selectedHardware,
+      selectedCameras
     }
   });
 
@@ -898,6 +902,7 @@ async function migrateHardwareWithPSTools(options = {}) {
     status: result.failed > 0 ? "partial" : "completed",
     exported: result.exported || 0,
     imported: result.imported || 0,
+    skipped: result.skipped || 0,
     errors: result.errors || [],
     targetRecorder: result.targetRecorder,
     runDirectory: result.runDirectory,

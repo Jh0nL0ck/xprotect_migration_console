@@ -77,11 +77,12 @@ function addMigrationReport(results) {
       ? ` Errors: ${result.errors.slice(0, 3).join(" | ")}${result.errors.length > 3 ? " | ..." : ""}`
       : "";
     const mapped = typeof result.mapped === "number" ? ` Mapped ${result.mapped}/${result.exported}.` : "";
+    const skipped = typeof result.skipped === "number" && result.skipped > 0 ? ` Skipped ${result.skipped} existing.` : "";
     const target = result.targetRecorder ? ` Target recorder: ${result.targetRecorder}.` : "";
     const artifacts = result.runDirectory ? ` Artifacts: ${result.runDirectory}.` : "";
     const csv = result.csvExportPath ? ` CSV: ${result.csvExportPath}.` : "";
 
-    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${mapped}${target}${artifacts}${csv}${errors}`;
+    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${mapped}${skipped}${target}${artifacts}${csv}${errors}`;
     activityLog.prepend(item);
   });
 }
@@ -309,6 +310,12 @@ function selectedItemsByObject() {
 
   objectList.querySelectorAll(".object-item-checkbox:checked").forEach((input) => {
     const objectId = input.dataset.objectId;
+    const card = input.closest(".object-card");
+    const typeCheckbox = card.querySelector(".object-type-checkbox");
+
+    if (!typeCheckbox.checked) {
+      return;
+    }
 
     if (!selected[objectId]) {
       selected[objectId] = [];
