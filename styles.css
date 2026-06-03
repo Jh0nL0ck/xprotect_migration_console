@@ -158,6 +158,12 @@ h2 {
   font-size: 14px;
 }
 
+.panel-note {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 label {
   display: grid;
   gap: 7px;

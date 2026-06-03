@@ -60,6 +60,7 @@ const hardwarePassword = document.querySelector("#hardwarePassword");
 const nodeStatus = document.querySelector("#nodeStatus");
 const pstoolsStatus = document.querySelector("#pstoolsStatus");
 const installPstoolsButton = document.querySelector("#installPstoolsButton");
+let setupPollingTimer = null;
 
 function addLog(message) {
   const item = document.createElement("li");
@@ -309,6 +310,33 @@ async function refreshEnvironment() {
   }
 }
 
+async function pollPSToolsSetup() {
+  try {
+    const status = await requestJson("/api/setup/pstools/status");
+
+    if (status.message) {
+      installPstoolsButton.textContent = status.running ? status.message : "Install MilestonePSTools";
+    }
+
+    if (status.status === "completed") {
+      window.clearInterval(setupPollingTimer);
+      setupPollingTimer = null;
+      addLog(status.message || "MilestonePSTools setup completed.");
+      await refreshEnvironment();
+      return;
+    }
+
+    if (status.status === "failed") {
+      window.clearInterval(setupPollingTimer);
+      setupPollingTimer = null;
+      addLog(`MilestonePSTools installation failed: ${status.error || status.message}`);
+      await refreshEnvironment();
+    }
+  } catch (error) {
+    addLog(`Could not read setup status: ${error.message}`);
+  }
+}
+
 sourceForm.addEventListener("submit", (event) => {
   event.preventDefault();
   connectSystem("source", sourceForm);
@@ -321,18 +349,23 @@ targetForm.addEventListener("submit", (event) => {
 
 installPstoolsButton.addEventListener("click", async () => {
   installPstoolsButton.disabled = true;
-  installPstoolsButton.textContent = "Installing...";
+  installPstoolsButton.textContent = "Starting setup...";
   addLog("MilestonePSTools installation started.");
 
   try {
-    const result = await requestJson("/api/setup/pstools", {
+    await requestJson("/api/setup/pstools", {
       method: "POST",
       body: JSON.stringify({})
     });
-    addLog(result.message || "MilestonePSTools installed successfully.");
+
+    if (setupPollingTimer) {
+      window.clearInterval(setupPollingTimer);
+    }
+
+    setupPollingTimer = window.setInterval(pollPSToolsSetup, 2000);
+    await pollPSToolsSetup();
   } catch (error) {
     addLog(`MilestonePSTools installation failed: ${error.message}`);
-  } finally {
     await refreshEnvironment();
   }
 });
