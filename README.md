@@ -1,3 +1,5 @@
+# Quick disclaimer: this tool is an independent open source project I’m building myself. It is not affiliated with, endorsed by, sponsored by, or supported by Milestone Systems. XProtect™ and Milestone™ are trademarks of Milestone Systems A/S.
+
 # XProtect Migration Console
 
 Prototype web application for reducing the manual work involved in migrating configuration between two Milestone XProtect systems.
