@@ -900,7 +900,7 @@ async function migrateHardwareWithPSTools(options = {}) {
 
   return {
     id: "hardware",
-    status: result.failed > 0 ? "partial" : "completed",
+    status: result.failed > 0 && !result.imported ? "failed" : result.failed > 0 ? "partial" : "completed",
     exported: result.exported || 0,
     imported: result.imported || 0,
     skipped: result.skipped || 0,

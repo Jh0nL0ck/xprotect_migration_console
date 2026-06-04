@@ -215,6 +215,87 @@ function Ensure-TemporaryCameraGroup {
     }
 }
 
+function Invoke-VmsHardwareImport {
+    param(
+        [Parameter(Mandatory = $true)][hashtable] $ImportParams
+    )
+
+    try {
+        return @{
+            Rows = @(Import-VmsHardware @ImportParams)
+            Errors = @()
+        }
+    } catch {
+        return @{
+            Rows = @()
+            Errors = @($_.Exception.Message)
+        }
+    }
+}
+
+function Invoke-VmsHardwareCsvImport {
+    param(
+        [Parameter(Mandatory = $true)][string] $Path,
+        [Parameter(Mandatory = $true)] $RecordingServer,
+        [Parameter(Mandatory = $false)] $Credential
+    )
+
+    $rows = @(Import-Csv -LiteralPath $Path)
+    $batchResults = @()
+    $batchErrors = @()
+    $groups = @($rows | Where-Object { $_.Address } | Group-Object Address)
+
+    if ($groups.Count -eq 0) {
+        $params = @{
+            Path            = $Path
+            RecordingServer = $RecordingServer
+            UpdateExisting  = $true
+        }
+
+        if ($Credential) {
+            $params.Credential = $Credential
+        }
+
+        $result = Invoke-VmsHardwareImport -ImportParams $params
+        return @{
+            Rows = @($result.Rows)
+            Errors = @($result.Errors)
+        }
+    }
+
+    $batchIndex = 0
+    foreach ($group in $groups) {
+        $batchIndex += 1
+        $batchPath = Join-Path (Split-Path -Parent $Path) ("hardware_batch_{0}.csv" -f $batchIndex)
+        @($group.Group) | Export-Csv -LiteralPath $batchPath -NoTypeInformation -Encoding UTF8
+
+        $params = @{
+            Path            = $batchPath
+            RecordingServer = $RecordingServer
+            UpdateExisting  = $true
+        }
+
+        if ($Credential) {
+            $params.Credential = $Credential
+        }
+
+        $result = Invoke-VmsHardwareImport -ImportParams $params
+        $batchResults += @($result.Rows)
+        foreach ($errorText in @($result.Errors)) {
+            $hardwareName = ($group.Group | Select-Object -First 1).HardwareName
+            if (-not $hardwareName) {
+                $hardwareName = $group.Name
+            }
+            $batchErrors += "$hardwareName`: $errorText"
+        }
+    }
+
+    return @{
+        Rows = @($batchResults)
+        Errors = @($batchErrors)
+    }
+}
+
 try {
     $config = Get-Content -Raw -LiteralPath $InputPath | ConvertFrom-Json
     Import-Module MilestonePSTools -ErrorAction Stop
@@ -315,19 +396,34 @@ try {
         }
     }
 
-    $importParams = @{
-        Path            = $importPath
-        RecordingServer = $targetRecorder
-        UpdateExisting  = $true
-    }
+    $hardwareCredential = $null
 
     if ($config.options.hardwareUsername -and $config.options.hardwarePassword) {
-        $importParams.Credential = @(
+        $hardwareCredential = @(
             New-PlainCredential -UserName $config.options.hardwareUsername -Password $config.options.hardwarePassword
         )
     }
 
-    $rows = @(Import-VmsHardware @importParams)
+    if ($importPath -eq $createdCsvExportPath) {
+        $importResult = Invoke-VmsHardwareCsvImport -Path $importPath -RecordingServer $targetRecorder -Credential $hardwareCredential
+        $rows = @($importResult.Rows)
+        $batchErrors = @($importResult.Errors)
+    } else {
+        $importParams = @{
+            Path            = $importPath
+            RecordingServer = $targetRecorder
+            UpdateExisting  = $true
+        }
+
+        if ($hardwareCredential) {
+            $importParams.Credential = $hardwareCredential
+        }
+
+        $importResult = Invoke-VmsHardwareImport -ImportParams $importParams
+        $rows = @($importResult.Rows)
+        $batchErrors = @($importResult.Errors)
+    }
+
     $failedRows = @($rows | Where-Object {
         $_.Result -and ($_.Result -notmatch "success|added|updated|ok")
     })
@@ -341,7 +437,7 @@ try {
         ok              = $true
         exported        = $exportedCount
         imported        = $successRows.Count
-        failed          = $failedRows.Count
+        failed          = $failedRows.Count + $batchErrors.Count
         skipped         = $skippedExisting
         selected        = $selectedCount
         targetRecorder  = $targetRecorder.Name
@@ -349,12 +445,15 @@ try {
         temporaryCameraGroupCreated = $temporaryCameraGroupCreated
         exportPath      = $exportPath
         csvExportPath   = $createdCsvExportPath
-        errors          = @($failedRows | Select-Object -First 20 | ForEach-Object {
+        errors          = @(
+            $batchErrors
+            $failedRows | Select-Object -First 20 | ForEach-Object {
             $name = $_.Name
             if (-not $name) { $name = $_.HardwareName }
             if (-not $name) { $name = $_.Address }
             "$name`: $($_.Result)"
-        })
+            }
+        )
     } | ConvertTo-Json -Depth 8 -Compress
 } catch {
     Disconnect-XProtect
