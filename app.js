@@ -20,6 +20,11 @@ const objectDefinitions = [
     description: "Basic and Windows users available for role and permission migration."
   },
   {
+    id: "roles",
+    label: "Roles",
+    description: "Operator roles, permissions, and mapped user membership."
+  },
+  {
     id: "rules",
     label: "Rules",
     description: "Automation rules, schedules, actions, and related triggers."
@@ -233,7 +238,7 @@ function updateWorkspaceState() {
 
   if (!state.sourceConnected) {
     emptyState.textContent =
-      "Connect the source system to load available cameras, views, users, rules, and alarms.";
+      "Connect the source system to load available cameras, views, users, roles, rules, and alarms.";
     objectList.replaceChildren();
     state.inventory = [];
   } else if (!state.targetConnected && hasSourceInventory) {
@@ -443,6 +448,9 @@ migrateButton.addEventListener("click", async () => {
     });
 
     addLog(result.message);
+    if (result.reportPath) {
+      addLog(`Migration report created: ${result.reportPath}`);
+    }
     if (Array.isArray(result.results)) {
       addMigrationReport(result.results);
     }

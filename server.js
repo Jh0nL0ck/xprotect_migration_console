@@ -39,6 +39,10 @@ const resourceMap = [
     resources: ["users", "basicUsers", "windowsUsers"]
   },
   {
+    id: "roles",
+    resources: ["roles"]
+  },
+  {
     id: "rules",
     resources: ["rules"]
   },
@@ -57,6 +61,7 @@ const sampleCounts = {
   cameraGroups: 18,
   hardware: 22,
   users: 12,
+  roles: 8,
   rules: 34,
   views: 42,
   alarms: 16
@@ -501,6 +506,18 @@ function referencePath(type, idOrPath) {
   return `${type}/${idOrPath}`;
 }
 
+function resourceItemPath(resourceName, idOrPath) {
+  if (!idOrPath) {
+    return resourceName;
+  }
+
+  if (String(idOrPath).includes("/")) {
+    return idOrPath;
+  }
+
+  return `${resourceName}/${idOrPath}`;
+}
+
 function buildNameMap(sourceItems, targetItems) {
   const targetByName = new Map();
   const mapped = [];
@@ -583,6 +600,80 @@ function replaceMappedIds(value, idMap) {
   }
 
   return value;
+}
+
+function looksLikeUserMembershipKey(key) {
+  return /user|member|principal|account|sid/i.test(key || "");
+}
+
+function mapUserReferences(value, idMap, parentKey = "") {
+  if (Array.isArray(value)) {
+    const mapped = value
+      .map((item) => mapUserReferences(item, idMap, parentKey))
+      .filter((item) => item !== null);
+
+    return mapped;
+  }
+
+  if (value && typeof value === "object") {
+    const clone = {};
+
+    for (const [key, childValue] of Object.entries(value)) {
+      const mappedValue = mapUserReferences(childValue, idMap, key);
+
+      if (mappedValue !== null) {
+        clone[key] = mappedValue;
+      }
+    }
+
+    return clone;
+  }
+
+  if (typeof value === "string") {
+    if (idMap.has(value)) {
+      return idMap.get(value);
+    }
+
+    return looksLikeUserMembershipKey(parentKey) ? null : value;
+  }
+
+  return value;
+}
+
+async function buildUserReferenceMap() {
+  const sourceData = await fetchResourceCollection(sessions.source, ["users", "basicUsers", "windowsUsers"]);
+  const targetData = await fetchResourceCollection(sessions.target, ["users", "basicUsers", "windowsUsers"]);
+  const targetByName = new Map();
+  const idMap = new Map();
+
+  for (const target of targetData.collection) {
+    const name = normalizeName(itemDisplayName(target));
+
+    if (name) {
+      targetByName.set(name, target);
+    }
+  }
+
+  for (const source of sourceData.collection) {
+    const target = targetByName.get(normalizeName(itemDisplayName(source)));
+
+    if (!target) {
+      continue;
+    }
+
+    const sourceId = itemId(source);
+    const targetId = itemId(target);
+
+    if (sourceId && targetId) {
+      idMap.set(sourceId, targetId);
+    }
+
+    if (source.path && target.path) {
+      idMap.set(source.path, target.path);
+    }
+  }
+
+  return idMap;
 }
 
 function sanitizeForCreate(item) {
@@ -962,6 +1053,10 @@ async function migrateObjectType(objectId, options = {}) {
     return migrateBasicUsers(options);
   }
 
+  if (objectId === "roles") {
+    return migrateRoles(options);
+  }
+
   const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
   const sourceCollection = filterSelectedItems(sourceData.collection, objectId, options);
   const targetResource = sourceData.resourceName;
@@ -984,6 +1079,60 @@ async function migrateObjectType(objectId, options = {}) {
       result.imported += 1;
     } catch (error) {
       result.errors.push(`${itemDisplayName(item) || "Unnamed item"}: ${error.message}`);
+    }
+  }
+
+  if (result.errors.length > 0 && result.imported > 0) {
+    result.status = "partial";
+  } else if (result.errors.length > 0) {
+    result.status = "failed";
+  }
+
+  return result;
+}
+
+async function migrateRoles(options = {}) {
+  const sourceData = await fetchResourceCollection(sessions.source, ["roles"]);
+  const sourceCollection = filterSelectedItems(sourceData.collection, "roles", options);
+  const targetData = await fetchResourceCollection(sessions.target, ["roles"]).catch(() => ({
+    collection: []
+  }));
+  const mapping = buildNameMap(sourceCollection, targetData.collection);
+  const existingByName = new Map();
+  for (const targetRole of targetData.collection) {
+    existingByName.set(normalizeName(itemDisplayName(targetRole)), targetRole);
+  }
+  const userMap = await buildUserReferenceMap().catch(() => new Map());
+  const result = {
+    id: "roles",
+    resource: sourceData.resourceName,
+    status: "completed",
+    exported: sourceCollection.length,
+    imported: 0,
+    mapped: mapping.mapped.length,
+    errors: []
+  };
+
+  for (const item of sourceCollection) {
+    const name = itemDisplayName(item);
+    const existingRole = existingByName.get(normalizeName(name));
+
+    try {
+      const payload = mapUserReferences(sanitizeForCreate(item), userMap);
+      if (existingRole) {
+        const targetPath = resourceItemPath(sourceData.resourceName, itemId(existingRole));
+
+        try {
+          await xprotectJson(sessions.target, targetPath, "PUT", payload);
+        } catch (error) {
+          await xprotectJson(sessions.target, targetPath, "PATCH", payload);
+        }
+      } else {
+        await xprotectJson(sessions.target, sourceData.resourceName, "POST", payload);
+      }
+      result.imported += 1;
+    } catch (error) {
+      result.errors.push(`${name || "Unnamed role"}: ${error.message}`);
     }
   }
 
@@ -1140,10 +1289,83 @@ async function applyCameraMapping(payload) {
   return replaceMappedIds(payload, idMap);
 }
 
+async function writeMigrationReport(results) {
+  await ensureDirectory(migrationRunsRoot);
+
+  const runId = `${Date.now()}-report-${crypto.randomBytes(4).toString("hex")}`;
+  const reportDirectory = path.join(migrationRunsRoot, runId);
+  const jsonPath = path.join(reportDirectory, "migration-report.json");
+  const textPath = path.join(reportDirectory, "migration-report.txt");
+  const totals = results.reduce((summary, result) => ({
+    exported: summary.exported + (result.exported || 0),
+    imported: summary.imported + (result.imported || 0),
+    failed: summary.failed + ((result.errors && result.errors.length) || 0),
+    skipped: summary.skipped + (result.skipped || 0)
+  }), {
+    exported: 0,
+    imported: 0,
+    failed: 0,
+    skipped: 0
+  });
+  const report = {
+    createdAt: new Date().toISOString(),
+    totals,
+    results
+  };
+  const lines = [
+    "XProtect Migration Report",
+    `Created: ${report.createdAt}`,
+    `Exported: ${totals.exported}`,
+    `Imported: ${totals.imported}`,
+    `Skipped: ${totals.skipped}`,
+    `Failures: ${totals.failed}`,
+    "",
+    ...results.flatMap((result) => [
+      `${result.id}: ${result.status}`,
+      `  Exported: ${result.exported || 0}`,
+      `  Imported: ${result.imported || 0}`,
+      `  Skipped: ${result.skipped || 0}`,
+      ...(result.runDirectory ? [`  Artifacts: ${result.runDirectory}`] : []),
+      ...(result.csvExportPath ? [`  CSV: ${result.csvExportPath}`] : []),
+      ...((result.errors || []).map((error) => `  Error: ${error}`)),
+      ""
+    ])
+  ];
+
+  await ensureDirectory(reportDirectory);
+  await fs.promises.writeFile(jsonPath, JSON.stringify(report, null, 2), "utf8");
+  await fs.promises.writeFile(textPath, lines.join("\r\n"), "utf8");
+
+  return {
+    reportDirectory,
+    jsonPath,
+    textPath
+  };
+}
+
 async function migrateObjects(objectIds, options = {}) {
   const results = [];
+  const migrationOrder = ["users", "roles"];
+  const orderedObjectIds = [...objectIds].sort((left, right) => {
+    const leftIndex = migrationOrder.indexOf(left);
+    const rightIndex = migrationOrder.indexOf(right);
 
-  for (const objectId of objectIds) {
+    if (leftIndex === -1 && rightIndex === -1) {
+      return 0;
+    }
+
+    if (leftIndex === -1) {
+      return 1;
+    }
+
+    if (rightIndex === -1) {
+      return -1;
+    }
+
+    return leftIndex - rightIndex;
+  });
+
+  for (const objectId of orderedObjectIds) {
     try {
       results.push(await migrateObjectType(objectId, options));
     } catch (error) {
@@ -1159,10 +1381,13 @@ async function migrateObjects(objectIds, options = {}) {
 
   const imported = results.reduce((total, result) => total + result.imported, 0);
   const exported = results.reduce((total, result) => total + result.exported, 0);
+  const report = await writeMigrationReport(results);
 
   return {
     message: `Migration finished: ${imported} of ${exported} exported items imported. Recordings and stored events were not moved.`,
-    results
+    results,
+    reportPath: report.textPath,
+    reportJsonPath: report.jsonPath
   };
 }
 
