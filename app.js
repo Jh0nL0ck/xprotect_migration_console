@@ -1,18 +1,13 @@
 const objectDefinitions = [
   {
-    id: "cameras",
-    label: "Cameras",
-    description: "Camera objects created by hardware import; used here for mapping and dependent objects."
+    id: "hardware",
+    label: "Hardware",
+    description: "Recording-server hardware devices that contain cameras, microphones, inputs, outputs, and metadata."
   },
   {
     id: "cameraGroups",
     label: "Camera groups",
     description: "Logical groups used by operators, rules, permissions, and views."
-  },
-  {
-    id: "hardware",
-    label: "Hardware",
-    description: "Recording-server hardware devices that contain cameras, microphones, inputs, outputs, and metadata."
   },
   {
     id: "users",
@@ -60,8 +55,6 @@ const migrateButton = document.querySelector("#migrateButton");
 const activityLog = document.querySelector("#activityLog");
 const defaultUserPassword = document.querySelector("#defaultUserPassword");
 const forcePasswordChange = document.querySelector("#forcePasswordChange");
-const hardwareUsername = document.querySelector("#hardwareUsername");
-const hardwarePassword = document.querySelector("#hardwarePassword");
 const nodeStatus = document.querySelector("#nodeStatus");
 const pstoolsStatus = document.querySelector("#pstoolsStatus");
 const refreshEnvironmentButton = document.querySelector("#refreshEnvironmentButton");
@@ -238,7 +231,7 @@ function updateWorkspaceState() {
 
   if (!state.sourceConnected) {
     emptyState.textContent =
-      "Connect the source system to load available cameras, views, users, roles, rules, and alarms.";
+      "Connect the source system to load available hardware, camera groups, users, roles, rules, views, and alarms.";
     objectList.replaceChildren();
     state.inventory = [];
   } else if (!state.targetConnected && hasSourceInventory) {
@@ -440,8 +433,6 @@ migrateButton.addEventListener("click", async () => {
         options: {
           defaultUserPassword: defaultUserPassword.value,
           forcePasswordChange: forcePasswordChange.checked,
-          hardwareUsername: hardwareUsername.value,
-          hardwarePassword: hardwarePassword.value,
           selectedItems: selectedItemsByObject()
         }
       })

@@ -190,7 +190,7 @@ Install-Module -Name MilestonePSTools -Scope CurrentUser -Force -AllowClobber</c
         </div>
 
         <div class="empty-state" id="emptyState">
-          Connect the source system to load available cameras, views, users, roles, rules, and alarms.
+          Connect the source system to load available hardware, camera groups, users, roles, rules, views, and alarms.
         </div>
 
         <div class="object-list" id="objectList" hidden></div>
@@ -201,16 +201,6 @@ Install-Module -Name MilestonePSTools -Scope CurrentUser -Force -AllowClobber</c
             <label>
               Temporary user password
               <input name="defaultUserPassword" id="defaultUserPassword" type="password" placeholder="Required for new basic users">
-            </label>
-            <label>
-              Hardware fallback username
-              <input name="hardwareUsername" id="hardwareUsername" type="text" placeholder="Only used if source does not expose one">
-            </label>
-          </div>
-          <div class="field-row">
-            <label>
-              Hardware fallback password
-              <input name="hardwarePassword" id="hardwarePassword" type="password" placeholder="Required if camera credentials are not exported">
             </label>
             <label class="checkbox-field option-checkbox">
               <input name="forcePasswordChange" id="forcePasswordChange" type="checkbox" checked>

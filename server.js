@@ -23,16 +23,12 @@ const staticTypes = {
 
 const resourceMap = [
   {
-    id: "cameras",
-    resources: ["cameras"]
+    id: "hardware",
+    resources: ["hardware"]
   },
   {
     id: "cameraGroups",
     resources: ["cameraGroups", "deviceGroups", "cameraDeviceGroups"]
-  },
-  {
-    id: "hardware",
-    resources: ["hardware"]
   },
   {
     id: "users",
@@ -57,9 +53,8 @@ const resourceMap = [
 ];
 
 const sampleCounts = {
-  cameras: 128,
-  cameraGroups: 18,
   hardware: 22,
+  cameraGroups: 18,
   users: 12,
   roles: 8,
   rules: 34,
