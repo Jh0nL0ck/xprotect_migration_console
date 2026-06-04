@@ -81,8 +81,9 @@ function addMigrationReport(results) {
     const target = result.targetRecorder ? ` Target recorder: ${result.targetRecorder}.` : "";
     const artifacts = result.runDirectory ? ` Artifacts: ${result.runDirectory}.` : "";
     const csv = result.csvExportPath ? ` CSV: ${result.csvExportPath}.` : "";
+    const temporaryGroup = result.temporaryCameraGroup ? ` Camera group: /${result.temporaryCameraGroup}.` : "";
 
-    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${mapped}${skipped}${target}${artifacts}${csv}${errors}`;
+    item.textContent = `${result.id}: ${result.status}. Imported ${result.imported}/${result.exported}.${mapped}${skipped}${target}${temporaryGroup}${artifacts}${csv}${errors}`;
     activityLog.prepend(item);
   });
 }

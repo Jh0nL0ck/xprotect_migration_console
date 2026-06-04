@@ -893,7 +893,8 @@ async function migrateHardwareWithPSTools(options = {}) {
       errors: result.errors || ["MilestonePSTools hardware migration failed."],
       runDirectory: result.runDirectory,
       exportPath: result.exportPath,
-      csvExportPath: result.csvExportPath
+      csvExportPath: result.csvExportPath,
+      temporaryCameraGroup: result.temporaryCameraGroup
     };
   }
 
@@ -907,7 +908,8 @@ async function migrateHardwareWithPSTools(options = {}) {
     targetRecorder: result.targetRecorder,
     runDirectory: result.runDirectory,
     exportPath: result.exportPath,
-    csvExportPath: result.csvExportPath
+    csvExportPath: result.csvExportPath,
+    temporaryCameraGroup: result.temporaryCameraGroup
   };
 }
 

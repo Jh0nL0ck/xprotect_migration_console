@@ -132,7 +132,8 @@ function Update-HardwareCsv {
     param(
         [Parameter(Mandatory = $true)][string] $Path,
         [Parameter(Mandatory = $true)] $SelectedCameras,
-        [Parameter(Mandatory = $true)][string[]] $ExistingAddresses
+        [Parameter(Mandatory = $true)][string[]] $ExistingAddresses,
+        [Parameter(Mandatory = $true)][string] $TemporaryCameraGroup
     )
 
     $rows = @(Import-Csv -LiteralPath $Path)
@@ -153,6 +154,11 @@ function Update-HardwareCsv {
 
         ($cameraIsSelected -or $relatedDeviceIsSelected) -and $notAlreadyDefined
     })
+    foreach ($row in $filteredRows) {
+        if ($row.DeviceType -eq "Camera") {
+            $row.DeviceGroups = "/$TemporaryCameraGroup"
+        }
+    }
     $skippedExisting = @($rows | Where-Object {
         ($selectedHardwareNames -contains $_.HardwareName) -and ($ExistingAddresses -contains (Normalize-Address -Value $_.Address))
     } | Select-Object -ExpandProperty Address -Unique).Count
@@ -171,6 +177,37 @@ function Update-HardwareCsv {
     }
 }
 
+function Ensure-TemporaryCameraGroup {
+    param(
+        [Parameter(Mandatory = $true)][string] $Name
+    )
+
+    $getCommand = Get-Command Get-VmsDeviceGroup -ErrorAction SilentlyContinue
+    $newCommand = Get-Command New-VmsDeviceGroup -ErrorAction SilentlyContinue
+    if (-not $newCommand) {
+        $newCommand = Get-Command Add-VmsDeviceGroup -ErrorAction SilentlyContinue
+    }
+
+    if (-not $getCommand -or -not $newCommand) {
+        return $false
+    }
+
+    $existing = @(& $getCommand -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -eq $Name -or $_.Path -eq "/$Name"
+    })
+
+    if ($existing.Count -gt 0) {
+        return $true
+    }
+
+    try {
+        & $newCommand -Name $Name -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 try {
     $config = Get-Content -Raw -LiteralPath $InputPath | ConvertFrom-Json
     Import-Module MilestonePSTools -ErrorAction Stop
@@ -179,6 +216,7 @@ try {
     $exportPath = Join-Path $runDirectory "hardware.xlsx"
     $csvExportPath = Join-Path $runDirectory "hardware.csv"
     $deviceTypes = @("Camera", "Microphone", "Speaker", "Metadata", "Input", "Output")
+    $temporaryCameraGroup = "temp_cam_group"
 
     Connect-XProtect -Connection $config.source -Name "xma-source"
     $selectedHardware = @($config.options.selectedHardware)
@@ -242,9 +280,10 @@ try {
     } | Where-Object { $_ } | Select-Object -Unique)
     $skippedExisting = 0
     $importPath = $exportPath
+    $temporaryCameraGroupCreated = Ensure-TemporaryCameraGroup -Name $temporaryCameraGroup
 
     if ($createdCsvExportPath) {
-        $csvFilter = Update-HardwareCsv -Path $createdCsvExportPath -SelectedCameras $selectedCameras -ExistingAddresses $existingAddresses
+        $csvFilter = Update-HardwareCsv -Path $createdCsvExportPath -SelectedCameras $selectedCameras -ExistingAddresses $existingAddresses -TemporaryCameraGroup $temporaryCameraGroup
         $skippedExisting = $csvFilter.SkippedExisting
         $importPath = $createdCsvExportPath
 
@@ -259,6 +298,8 @@ try {
                 skipped         = $skippedExisting
                 selected        = $selectedCount
                 targetRecorder  = $targetRecorder.Name
+                temporaryCameraGroup = $temporaryCameraGroup
+                temporaryCameraGroupCreated = $temporaryCameraGroupCreated
                 exportPath      = $exportPath
                 csvExportPath   = $createdCsvExportPath
                 errors          = @("Selected hardware already exists on the target recording server, so no new hardware was imported.")
@@ -297,6 +338,8 @@ try {
         skipped         = $skippedExisting
         selected        = $selectedCount
         targetRecorder  = $targetRecorder.Name
+        temporaryCameraGroup = $temporaryCameraGroup
+        temporaryCameraGroupCreated = $temporaryCameraGroupCreated
         exportPath      = $exportPath
         csvExportPath   = $createdCsvExportPath
         errors          = @($failedRows | Select-Object -First 20 | ForEach-Object {
