@@ -9,6 +9,7 @@ const port = Number(process.env.PORT || 4173);
 const root = __dirname;
 const migrationRunsRoot = path.join(root, ".migration-runs");
 const pstoolsHardwareScript = path.join(root, "scripts", "Invoke-XProtectHardwareMigration.ps1");
+const pstoolsConfigScript = path.join(root, "scripts", "Invoke-XProtectPSToolsConfigMigration.ps1");
 const sessions = {
   source: null,
   target: null
@@ -767,7 +768,11 @@ async function buildInventory(connection) {
 
   for (const resource of resourceMap) {
     try {
-      const summary = await summarizeResource(connection, resource.resources);
+      let summary = await summarizeResource(connection, resource.resources);
+
+      if ((resource.id === "rules" || resource.id === "views") && summary.count === 0 && sessions.source && !connection.sampleMode) {
+        summary = await pstoolsConfigInventory(resource.id);
+      }
 
       objects.push({
         id: resource.id,
@@ -775,6 +780,20 @@ async function buildInventory(connection) {
         items: summary.items
       });
     } catch (error) {
+      if ((resource.id === "rules" || resource.id === "views") && sessions.source && !connection.sampleMode) {
+        try {
+          const summary = await pstoolsConfigInventory(resource.id);
+
+          objects.push({
+            id: resource.id,
+            count: summary.count,
+            items: summary.items
+          });
+          continue;
+        } catch {
+        }
+      }
+
       objects.push({
         id: resource.id,
         count: 0,
@@ -934,7 +953,7 @@ async function environmentStatus() {
 
   const command = [
     "$ErrorActionPreference = 'Stop'",
-    "$commands = @('Connect-Vms','Get-VmsRecordingServer','Export-VmsHardware','Import-VmsHardware')",
+    "$commands = @('Connect-Vms','Get-VmsRecordingServer','Export-VmsHardware','Import-VmsHardware','Get-VmsRule','Export-VmsRule','Import-VmsRule','Get-VmsViewGroup','Export-VmsViewGroup','Import-VmsViewGroup')",
     "$missing = @($commands | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })",
     "$module = Get-Module MilestonePSTools -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1",
     "[pscustomobject]@{ ok = ($missing.Count -eq 0); version = if ($module) { $module.Version.ToString() } else { $null }; missingCommands = $missing } | ConvertTo-Json -Compress"
@@ -948,6 +967,56 @@ async function environmentStatus() {
   }
 
   return status;
+}
+
+async function pstoolsConfigInventory(type) {
+  const result = await runPowerShellJson(pstoolsConfigScript, {
+    mode: "inventory",
+    type,
+    source: safeSessionForPowerShell(sessions.source)
+  });
+
+  if (!result.ok) {
+    throw new Error((result.errors || ["MilestonePSTools inventory failed."]).join("; "));
+  }
+
+  return {
+    count: result.count || 0,
+    items: result.items || []
+  };
+}
+
+async function migrateWithPSToolsConfig(type, objectId, options = {}) {
+  const selectedItems = options.selectedItems && Array.isArray(options.selectedItems[objectId])
+    ? options.selectedItems[objectId]
+    : [];
+  const result = await runPowerShellJson(pstoolsConfigScript, {
+    mode: "migrate",
+    type,
+    source: safeSessionForPowerShell(sessions.source),
+    target: safeSessionForPowerShell(sessions.target),
+    selectedItems
+  });
+
+  if (!result.ok) {
+    return {
+      id: objectId,
+      status: "failed",
+      exported: result.exported || 0,
+      imported: result.imported || 0,
+      errors: result.errors || ["MilestonePSTools migration failed."],
+      runDirectory: result.runDirectory
+    };
+  }
+
+  return {
+    id: objectId,
+    status: result.failed > 0 && !result.imported ? "failed" : result.failed > 0 ? "partial" : "completed",
+    exported: result.exported || 0,
+    imported: result.imported || 0,
+    errors: result.errors || [],
+    runDirectory: result.runDirectory
+  };
 }
 
 async function migrateHardwareWithPSTools(options = {}) {
@@ -1050,6 +1119,14 @@ async function migrateObjectType(objectId, options = {}) {
 
   if (objectId === "roles") {
     return migrateRoles(options);
+  }
+
+  if (objectId === "rules") {
+    return migrateWithPSToolsConfig("rules", objectId, options);
+  }
+
+  if (objectId === "views") {
+    return migrateWithPSToolsConfig("views", objectId, options);
   }
 
   const sourceData = await fetchResourceCollection(sessions.source, resource.resources);
