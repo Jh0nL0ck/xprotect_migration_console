@@ -132,7 +132,7 @@ function Update-HardwareCsv {
     param(
         [Parameter(Mandatory = $true)][string] $Path,
         [Parameter(Mandatory = $true)] $SelectedCameras,
-        [Parameter(Mandatory = $true)][string[]] $ExistingAddresses,
+        [string[]] $ExistingAddresses = @(),
         [Parameter(Mandatory = $true)][string] $TemporaryCameraGroup
     )
 
@@ -156,7 +156,14 @@ function Update-HardwareCsv {
     })
     foreach ($row in $filteredRows) {
         if ($row.DeviceType -eq "Camera") {
-            $row.DeviceGroups = "/$TemporaryCameraGroup"
+            $temporaryCameraGroupPath = "/$TemporaryCameraGroup"
+            $currentDeviceGroups = [string] $row.DeviceGroups
+
+            if (-not $currentDeviceGroups) {
+                $row.DeviceGroups = $temporaryCameraGroupPath
+            } elseif ($currentDeviceGroups -notmatch [regex]::Escape($temporaryCameraGroupPath)) {
+                $row.DeviceGroups = "$currentDeviceGroups;$temporaryCameraGroupPath"
+            }
         }
     }
     $skippedExisting = @($rows | Where-Object {
